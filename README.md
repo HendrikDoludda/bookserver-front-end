@@ -41,17 +41,3 @@ permissions, app icons, signing, entitlements and minimum OS versions. `build/` 
 `version: 1.0.0+1` in `pubspec.yaml` means `<version name>+<build number>`. It becomes
 `CFBundleShortVersionString` / `CFBundleVersion` on Apple and `versionName` /
 `versionCode` on Android. Increase the build number for every store upload.
-
-## Before the first API call to the bookserver
-
-The generated project can't reach the network in every build yet:
-
-- **Android release builds:** the `INTERNET` permission is only in the debug and
-  profile manifests. Add `<uses-permission android:name="android.permission.INTERNET"/>`
-  to `android/app/src/main/AndroidManifest.xml`. Without it, release builds can't
-  reach the network and show no clear error.
-- **macOS (debug and release):** the app is sandboxed without outgoing-network
-  permission. Add the `com.apple.security.network.client` key set to `true` to both
-  `macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlements`.
-- **Android emulator to your Mac:** inside the emulator, `localhost` is the emulator
-  itself. Your Mac is `10.0.2.2`.
