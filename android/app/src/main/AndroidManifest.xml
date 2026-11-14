@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- No backup: a restored session can't be decrypted, because its key stays in the old
+         device's keystore, and session tokens don't belong in a cloud backup. -->
     <application
+        android:allowBackup="false"
         android:label="bookserver"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

@@ -29,6 +29,14 @@ class SessionTokens {
     throw const FormatException('Not a session.');
   }
 
+  Map<String, Object?> toJson() => {
+    'session_token': sessionToken,
+    'session_expires_at': _toUnixSeconds(sessionExpiresAt),
+    'refresh_token': refreshToken,
+    'refresh_expires_at': _toUnixSeconds(refreshExpiresAt),
+    'device_id': deviceId,
+  };
+
   final String sessionToken;
   final DateTime sessionExpiresAt;
   final String refreshToken;
@@ -124,3 +132,5 @@ class AuthApi {
 
 DateTime _fromUnixSeconds(int seconds) =>
     DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
+
+int _toUnixSeconds(DateTime time) => time.millisecondsSinceEpoch ~/ 1000;

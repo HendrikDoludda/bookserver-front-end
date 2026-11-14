@@ -36,7 +36,7 @@ holds only what is about this code.
 
 Flutter 3.50 (stable) · Dart 3.14 · Material from the `material_ui` package
 (`package:material_ui/material_ui.dart`, as the 3.50 template sets it up) · flutter_lints 6 ·
-`package:http` 1.6 for every server call.
+`package:http` 1.6 for every server call · flutter_secure_storage 11.2 for the session.
 Code lives in `lib/`, tests in `test/`; the platforms are the native folders that exist.
 
 ### Rules learned
