@@ -77,7 +77,10 @@ void main() {
     await tester.tap(signInButton());
     await tester.pumpAndSettle();
 
-    expect(server.requests.last.body, contains('"username_or_email":"alice"'));
+    final login = server.requests.singleWhere(
+      (request) => request.url.path == '/api/v1/auth/login',
+    );
+    expect(login.body, contains('"username_or_email":"alice"'));
   });
 
   testWidgets('Enter in the password field signs in', (tester) async {

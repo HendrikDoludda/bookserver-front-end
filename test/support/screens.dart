@@ -11,15 +11,16 @@ import 'memory_session_store.dart';
 const testAddress = 'https://books.example.ts.net';
 final testOrigin = Uri.parse(testAddress);
 
-/// A login or refresh answer whose session token runs another 15 minutes.
+/// A login or refresh answer whose session token runs another [sessionLasts].
 Map<String, Object?> tokensJson({
   String session = 'session-1',
   String refresh = 'refresh-1',
+  Duration sessionLasts = const Duration(minutes: 15),
 }) {
   final now = DateTime.now();
   return {
     'session_token': session,
-    'session_expires_at': _seconds(now.add(const Duration(minutes: 15))),
+    'session_expires_at': _seconds(now.add(sessionLasts)),
     'refresh_token': refresh,
     'refresh_expires_at': _seconds(now.add(const Duration(days: 30))),
     'device_id': 'device-1',
