@@ -9,65 +9,25 @@ One Dart codebase targets **iOS, Android and macOS**.
 | Dart package name | `bookserver` (imports look like `package:bookserver/...`) |
 | Flutter / Dart at project setup | 3.50.0 stable / 3.14.0 |
 
-## One-time machine setup (macOS)
+- Setting up a machine and running the app: [docs/run-deploy/local.md](docs/run-deploy/local.md)
+- Commands for development: [docs/commands.md](docs/commands.md)
+- Where the code lives and the rules it follows: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-Flutter compiles your Dart code, but each platform is still built by its own native
-toolchain. You need Flutter plus the native tools for every platform you build.
-
-1. **Flutter SDK** (this includes Dart, so don't install Dart separately):
-   ```sh
-   git clone https://github.com/flutter/flutter.git -b stable ~/develop/flutter
-   echo 'export PATH="$HOME/develop/flutter/bin:$PATH"' >> ~/.zshrc   # then open a new terminal
-   flutter --version   # the first run downloads the Dart SDK
-   ```
-2. **Xcode** (for iOS and macOS) from the App Store, then:
-   ```sh
-   sudo sh -c 'xcode-select -s /Applications/Xcode.app/Contents/Developer && xcodebuild -runFirstLaunch'
-   brew install cocoapods   # still needed for plugins that don't support Swift Package Manager yet
-   ```
-3. **Android Studio** (for Android). Open it once and let it install the Android SDK,
-   then run `flutter doctor --android-licenses`. Flutter uses the JDK bundled with
-   Android Studio. Create an emulator under *Device Manager*.
-4. **Editor:** VS Code with the *Flutter* extension (it also installs *Dart*), or
-   Android Studio with the Flutter plugin.
-5. **Check everything** with `flutter doctor`. Every platform you build for should show ✓.
+Flutter compiles the Dart code, but each platform is still built by its own native
+toolchain: Xcode for iOS and macOS, the Android SDK for Android. Editing works in VS Code
+with the *Flutter* extension (it installs *Dart* too), or in Android Studio with the
+Flutter plugin.
 
 > Prefer an Apple Silicon Mac: Flutter is deprecating Intel Macs, and a future
 > version will no longer build on them.
-
-## Run it
-
-```sh
-flutter pub get          # fetch packages (pubspec.yaml -> pubspec.lock)
-flutter devices          # list simulators, emulators, phones and this Mac
-flutter run -d macos     # or -d <device id from `flutter devices`>
-```
-
-- **iOS Simulator:** `open -a Simulator` first.
-- **Android emulator:** `flutter emulators` to list them, then `flutter emulators --launch <id>`.
-- **A real iPhone:** open `ios/Runner.xcworkspace` in Xcode once and pick your Team
-  under *Signing & Capabilities*.
-
-While `flutter run` is active, press `r` for **hot reload** (applies code changes and
-keeps app state), `R` for **hot restart** (resets state), `q` to quit. In VS Code, F5
-starts the app and saving a file triggers hot reload.
-
-## Everyday commands
-
-| Command | What it does |
-|---|---|
-| `flutter pub add <package>` | Add a dependency (find packages on [pub.dev](https://pub.dev)) |
-| `flutter analyze` | Static analysis plus the lint rules in `analysis_options.yaml` |
-| `dart format .` | Format code in the standard Dart style |
-| `flutter test` | Run the tests in `test/` |
-| `flutter build ipa` / `appbundle` / `macos` | Release builds for App Store / Play Store / Mac (code signing must be set up first) |
-| `flutter upgrade` | Update the Flutter SDK. Do this deliberately, as a team |
 
 ## Project layout
 
 ```
 lib/                    your Dart code; main.dart is the entry point
 test/                   tests (flutter_test)
+assets/                 files bundled into the app, such as the built-in English texts
+docs/                   architecture, commands, and how to run the app
 pubspec.yaml            name, version, dependencies, assets
 pubspec.lock            exact resolved versions. Committed, so everyone builds the same thing
 analysis_options.yaml   lint rules (flutter_lints)
@@ -93,8 +53,5 @@ The generated project can't reach the network in every build yet:
 - **macOS (debug and release):** the app is sandboxed without outgoing-network
   permission. Add the `com.apple.security.network.client` key set to `true` to both
   `macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlements`.
-- **Plain `http://`** (for example a local dev server) is blocked by default on
-  iOS/macOS (App Transport Security) and Android (cleartext traffic). Use `https://`,
-  or add a debug-only exception.
 - **Android emulator to your Mac:** inside the emulator, `localhost` is the emulator
   itself. Your Mac is `10.0.2.2`.
