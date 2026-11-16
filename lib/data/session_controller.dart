@@ -67,9 +67,14 @@ class SessionController extends ChangeNotifier {
 
   SessionStage get stage => _stage;
 
-  /// Takes up what the app kept from its last run.
+  /// Takes up what the app kept from its last run, unless this build may not use its server.
   Future<void> load() async {
-    final connection = await _store.read();
+    var connection = await _store.read();
+    if (connection != null && !_mayUse(connection.server)) {
+      // Not even a sign-out request goes to that address: it would carry the refresh token.
+      await _store.delete();
+      connection = null;
+    }
     _connection = connection;
     _show(switch (connection) {
       null => const NeedsServer(),
@@ -225,6 +230,15 @@ class SessionController extends ChangeNotifier {
   void _show(SessionStage stage) {
     _stage = stage;
     notifyListeners();
+  }
+
+  bool _mayUse(Uri server) {
+    try {
+      parseServerAddress(server.toString(), allowHttp: _allowHttp);
+      return true;
+    } on AddressException {
+      return false;
+    }
   }
 
   AuthApi _auth(Uri server) => AuthApi(ApiClient(_client, server));

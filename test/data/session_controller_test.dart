@@ -111,6 +111,87 @@ void main() {
 
       expect(told, 1);
     });
+
+    group('checks the stored server as it would a typed one', () {
+      final local = Uri.parse('http://localhost:8080');
+
+      test(
+        'a release build drops an http:// record and sends nothing there',
+        () async {
+          store.connection = StoredConnection(
+            server: local,
+            deviceId: _deviceId,
+            tokens: SessionTokens(
+              sessionToken: 'session-1',
+              sessionExpiresAt: now.add(const Duration(minutes: 15)),
+              refreshToken: 'refresh-1',
+              refreshExpiresAt: now.add(const Duration(days: 30)),
+              deviceId: _deviceId,
+            ),
+          );
+          final session = controller(allowHttp: false);
+
+          await session.load();
+
+          expect(session.stage, isA<NeedsServer>());
+          expect(store.connection, isNull);
+          await expectLater(
+            libraries(session),
+            throwsA(isA<SessionEndedException>()),
+          );
+          expect(server.requests, isEmpty);
+        },
+      );
+
+      test('a debug build keeps an http:// record', () async {
+        store.connection = StoredConnection(server: local, deviceId: _deviceId);
+        final session = controller(allowHttp: true);
+
+        await session.load();
+
+        expect(
+          session.stage,
+          isA<LoggedOut>().having((s) => s.server, 'server', local),
+        );
+        expect(store.connection?.server, local);
+      });
+
+      for (final address in [
+        _address,
+        'https://192.168.1.20:8443',
+        'https://[::1]:8443',
+      ]) {
+        test('a release build keeps $address', () async {
+          final origin = Uri.parse(address);
+          store.connection = StoredConnection(
+            server: origin,
+            deviceId: _deviceId,
+          );
+          final session = controller(allowHttp: false);
+
+          await session.load();
+
+          expect(
+            session.stage,
+            isA<LoggedOut>().having((s) => s.server, 'server', origin),
+          );
+          expect(store.connection?.server, origin);
+        });
+      }
+
+      test('drops a record whose server is more than an origin', () async {
+        store.connection = StoredConnection(
+          server: Uri.parse('$_address/library'),
+          deviceId: _deviceId,
+        );
+        final session = controller();
+
+        await session.load();
+
+        expect(session.stage, isA<NeedsServer>());
+        expect(store.connection, isNull);
+      });
+    });
   });
 
   group('useServer', () {

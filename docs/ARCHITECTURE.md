@@ -24,7 +24,7 @@
 - Every call that needs a session goes through `SessionController.authorized`; nothing else reads tokens.
 - One refresh at a time: a call that needs one while another runs waits for it.
 - Only a refused refresh, a second 401 or signing out ends a session; a network failure keeps it.
-- Release builds accept only `https://` server addresses; `kDebugMode` decides.
+- Release builds use only `https://` server addresses, typed or stored; `kDebugMode` decides.
 
 ## UI
 - Components read design tokens — `lib/ui/theme.dart` and the theme's colour scheme — never literal colours or sizes.
