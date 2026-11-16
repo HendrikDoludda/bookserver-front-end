@@ -1,4 +1,6 @@
 import 'package:bookserver/app.dart';
+import 'package:bookserver/data/auth_api.dart';
+import 'package:bookserver/data/session.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +41,25 @@ FakeServer bookServer([
   }
   return answer(request);
 });
+
+/// A session signed in to [server], its session token good for another [sessionLasts].
+Future<SessionController> signedInSession(
+  FakeServer server, {
+  Duration sessionLasts = const Duration(minutes: 15),
+}) async {
+  final store = MemorySessionStore()
+    ..connection = StoredConnection(server: testOrigin, deviceId: 'device-1')
+        .withTokens(
+          SessionTokens.fromJson(tokensJson(sessionLasts: sessionLasts)),
+        );
+  final session = SessionController(
+    store: store,
+    client: server.client,
+    platform: 'macos',
+  );
+  await session.load();
+  return session;
+}
 
 /// Starts the whole app as `main()` does, on [store]'s record and [server].
 Future<SessionController> pumpApp(

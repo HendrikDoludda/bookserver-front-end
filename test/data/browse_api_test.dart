@@ -140,6 +140,12 @@ void main() {
     expectGet(server, '/api/v1/books/5/pages');
   });
 
+  test('names the cover of a book, a series and a library', () {
+    expect(coverPath(CoverKind.book, 1), '/api/v1/covers/book/1');
+    expect(coverPath(CoverKind.series, 2), '/api/v1/covers/series/2');
+    expect(coverPath(CoverKind.library, 3), '/api/v1/covers/library/3');
+  });
+
   test('an empty list is empty', () async {
     final server = FakeServer((_) async => jsonAnswer([]));
     final api = apiFor(server);

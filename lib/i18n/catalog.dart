@@ -30,8 +30,18 @@ class Catalog {
 
   bool has(String key) => _find(key) != null;
 
-  /// The text for `namespace.name`, or the key itself when the catalog lacks it.
-  String text(String key) => _find(key) ?? key;
+  /// The text for `namespace.name`, or the key itself when the catalog lacks it, with each
+  /// `{placeholder}` filled from [values]. A placeholder without a value stays as it is.
+  String text(String key, [Map<String, Object> values = const {}]) {
+    final text = _find(key) ?? key;
+    if (values.isEmpty) {
+      return text;
+    }
+    return text.replaceAllMapped(
+      _placeholder,
+      (match) => values[match[1]]?.toString() ?? match[0]!,
+    );
+  }
 
   String? _find(String key) {
     final dot = key.indexOf('.');
@@ -78,6 +88,12 @@ class CatalogScope extends InheritedWidget {
 }
 
 extension CatalogContext on BuildContext {
-  /// The text for `namespace.name` from the nearest [CatalogScope].
-  String t(String key) => CatalogScope.of(this).text(key);
+  /// The text for `namespace.name` from the nearest [CatalogScope], its `{placeholders}` filled
+  /// from [values].
+  String t(String key, [Map<String, Object> values = const {}]) =>
+      CatalogScope.of(this).text(key, values);
 }
+
+// The backend's placeholder, `PLACEHOLDER` in its `translation_seed.rs`: what it checks to match
+// between languages is what the app fills.
+final _placeholder = RegExp(r'\{([a-z0-9_]+)\}');

@@ -12,6 +12,18 @@ abstract final class Widths {
   static const double form = 400;
 }
 
+/// The book, series and library covers of the browse grids.
+abstract final class Covers {
+  /// Width over height, the shape of most book covers.
+  static const double aspectRatio = 2 / 3;
+
+  /// The widest a cover's tile gets.
+  static const double maxTileWidth = 180;
+
+  // Sharp at the widest tile on a 3× phone screen; a full-size cover would decode to megabytes.
+  static final int decodeWidth = (maxTileWidth * 3).ceil();
+}
+
 // Kept from the Flutter template until branding (08) sets the app's colours.
 const Color _seed = Colors.deepPurple;
 

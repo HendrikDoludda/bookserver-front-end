@@ -49,6 +49,13 @@ class Book {
   final int? chapter;
 }
 
+/// What a cover belongs to. A series or library without a cover of its own shows its first
+/// book's.
+enum CoverKind { book, series, library }
+
+/// Where the cover of the [kind] with [id] is.
+String coverPath(CoverKind kind, int id) => '/api/v1/covers/${kind.name}/$id';
+
 /// The way from the libraries to a book: the libraries, a library's series, a series' books in
 /// reading order, and the pages of a book made of images.
 class BrowseApi {

@@ -36,6 +36,53 @@ void main() {
     });
   });
 
+  group('text with values', () {
+    final reader = Catalog.fromJson({
+      'reader': {
+        'page_of': 'Page {page} of {count}',
+        'both': '{count} pages, {count} in all',
+        'odd': 'Keep {page} and {Page} and {page-1}',
+      },
+    });
+
+    test('fills each placeholder from its value', () {
+      expect(
+        reader.text('reader.page_of', {'page': 2, 'count': 10}),
+        'Page 2 of 10',
+      );
+      expect(
+        reader.text('reader.both', {'count': 12}),
+        '12 pages, 12 in all',
+        reason: 'a placeholder used twice',
+      );
+    });
+
+    test('leaves a placeholder without a value as it is', () {
+      expect(reader.text('reader.page_of'), 'Page {page} of {count}');
+      expect(reader.text('reader.page_of', {'page': 2}), 'Page 2 of {count}');
+      expect(
+        reader.text('reader.page_of', {'pages': 2, 'Page': 3}),
+        'Page {page} of {count}',
+      );
+    });
+
+    test("fills only the backend's placeholder shape, and only once", () {
+      expect(
+        reader.text('reader.odd', {'page': 1, 'Page': 2, 'page-1': 3}),
+        'Keep 1 and {Page} and {page-1}',
+      );
+      expect(
+        reader.text('reader.page_of', {'page': '{count}', 'count': 10}),
+        'Page {count} of 10',
+        reason: 'a value is not filled again',
+      );
+    });
+
+    test('a key the catalog lacks stays the key', () {
+      expect(reader.text('reader.nope', {'page': 1}), 'reader.nope');
+    });
+  });
+
   group('fromJson', () {
     test('refuses anything but an object of namespaces of texts', () {
       final shapes = <Object?>[
@@ -83,6 +130,22 @@ void main() {
     testWidgets('reads the nearest CatalogScope', (tester) async {
       await tester.pumpWidget(_scoped(catalog, const _Shows('login.title')));
       expect(find.text('Sign in'), findsOneWidget);
+    });
+
+    testWidgets('fills the placeholders from the values', (tester) async {
+      final volumes = Catalog.fromJson({
+        'browse': {'volume': 'Volume {number}'},
+      });
+      await tester.pumpWidget(
+        _scoped(
+          volumes,
+          Builder(
+            builder: (context) =>
+                Text(context.t('browse.volume', {'number': 3})),
+          ),
+        ),
+      );
+      expect(find.text('Volume 3'), findsOneWidget);
     });
 
     testWidgets('a new catalog rebuilds even a const widget below it', (

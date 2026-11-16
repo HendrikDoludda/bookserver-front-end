@@ -5,7 +5,7 @@
 - `lib/app.dart` — the root: the catalog and the theme above every screen, and the screen for the session's stage.
 - `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept) and `session_controller.dart` (its stages and rules).
 - `lib/i18n/catalog.dart` — the catalog, `CatalogScope` and `context.t()`.
-- `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `home_screen.dart`), the layout of a one-form screen (`form_page.dart`), the text a failure shows (`error_text.dart`), and the design tokens (`theme.dart`).
+- `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `home_screen.dart`), the layout of a one-form screen (`form_page.dart`), the text a failure shows (`error_text.dart`), images from the server (`server_image.dart`) and the covers made of them (`cover.dart`), and the design tokens (`theme.dart`).
 - `assets/translations/en.json` — the built-in English: the server's answer to `GET /api/v1/locales/en/translations`, refreshed with the command in [commands.md](commands.md).
 - Code in `lib/` is imported by package — `package:bookserver/…` — never by a relative path.
 
@@ -29,7 +29,8 @@
 
 ## UI
 - Components read design tokens — `lib/ui/theme.dart` and the theme's colour scheme — never literal colours or sizes.
-- Every visible string goes through `context.t("namespace.key")` against the backend's translation catalog.
+- Every visible string goes through `context.t("namespace.key")` against the backend's translation catalog; values go into its `{placeholders}` — `context.t('browse.volume', {'number': 3})` — never by joining strings.
+- An image from the server — a cover, a page — loads through `ServerImage`, never `Image.network`: its request goes through `SessionController.authorized`, and the image cache keeps it under the server and the path.
 - Services and controllers throw typed exceptions, never text; a screen shows a failure as the text `errorTextKey` picks.
 - Screens catch `Exception`s only: an `Error` is a bug and stays loud.
 
@@ -39,4 +40,6 @@
 - Secure storage is faked with `MemorySessionStore`; `SecureSessionStore` itself is tested over `FlutterSecureStorage.setMockInitialValues`.
 - Code that depends on the time takes a clock (`DateTime Function()`), so tests never wait.
 - Screen tests start the whole app as `main()` does, over the fakes (`pumpApp` in `test/support/screens.dart`), and find texts through the catalog, never as literals.
+- A widget test answers every request it leaves waiting before it ends: `ApiClient`'s timeout timer must not outlive the test.
+- An image test decodes real PNG bytes (`onePixelPng`, `test/support/images.dart`); a widget that loads one is pumped inside `tester.runAsync`, where the decoding can finish.
 - Every catalog key written in `lib/` has a built-in English text; `test/i18n/keys_in_code_test.dart` fails otherwise.
