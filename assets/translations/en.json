@@ -2,6 +2,14 @@
   "app": {
     "name": "Book Server"
   },
+  "browse": {
+    "books_empty": "No books in this series yet.",
+    "chapter": "Chapter {number}",
+    "reload": "Reload",
+    "series_empty": "No series in this library yet.",
+    "volume": "Volume {number}",
+    "volume_chapter": "Volume {volume}, chapter {chapter}"
+  },
   "connection": {
     "unexpected_answer": "The server's answer doesn't make sense to the app. Updating the app may help.",
     "unreachable": "Can't reach the server. Check the address and your connection."
@@ -49,6 +57,14 @@
     "title": "Sign in",
     "totp_unavailable": "This account uses two-factor authentication, which this version of the app can't do yet.",
     "username_or_email": "Username or email address"
+  },
+  "reader": {
+    "open_failed": "This book can't be opened.",
+    "opening": "Opening the book…",
+    "page_failed": "This page couldn't be loaded.",
+    "page_of": "Page {page} of {count}",
+    "retry": "Try again",
+    "unsupported": "The app can't show this kind of book yet."
   },
   "server": {
     "address_hint": "https://my-server.tailnet.ts.net",

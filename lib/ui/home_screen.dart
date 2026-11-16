@@ -1,4 +1,4 @@
-import 'package:bookserver/data/libraries_api.dart';
+import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/error_text.dart';
@@ -34,7 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _load() async {
     try {
       final libraries = await widget.session.authorized(
-        (api, sessionToken) => LibrariesApi(api).list(sessionToken),
+        (api, sessionToken) => BrowseApi(api).libraries(sessionToken),
       );
       if (mounted) {
         setState(() {

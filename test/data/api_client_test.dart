@@ -182,6 +182,192 @@ void main() {
     );
   });
 
+  test(
+    'getBytes answers the body as it came and refuses like the JSON calls',
+    () async {
+      final png = [0x89, 0x50, 0x4e, 0x47, 0xff, 0x00];
+      final server = FakeServer(
+        (_) async => http.Response.bytes(
+          png,
+          200,
+          headers: {'content-type': 'image/png'},
+        ),
+      );
+      expect(
+        await clientFor(server)
+            .getBytes('/api/v1/covers/book/1', bearer: 'token-1'),
+        png,
+      );
+      final request = server.requests.single;
+      expect(request.headers['authorization'], 'Bearer token-1');
+      expect(request.headers.containsKey('accept'), isFalse);
+      expect(request.followRedirects, isFalse);
+
+      final missing = FakeServer(
+        (_) async => jsonAnswer({'error': 'not_found'}, 404),
+      );
+      await expectLater(
+        clientFor(missing).getBytes('/api/v1/covers/book/2'),
+        throwsA(isA<ApiException>().having((e) => e.key, 'key', 'not_found')),
+      );
+    },
+  );
+
+  group('a download', () {
+    late Directory folder;
+    setUp(
+      () => folder = Directory.systemTemp.createTempSync('bookserver-test-'),
+    );
+    tearDown(() => folder.deleteSync(recursive: true));
+
+    File target() => File('${folder.path}/book.pdf');
+
+    ApiClient downloaderFor(
+      StreamingFakeServer server, {
+      Duration timeout = const Duration(seconds: 15),
+    }) => ApiClient(server.client, origin, timeout: timeout);
+
+    /// [parts] as the chunks of an answer's body, each [gap] after the one before.
+    Stream<List<int>> chunks(
+      List<String> parts, {
+      Duration gap = Duration.zero,
+    }) async* {
+      for (final part in parts) {
+        await Future<void>.delayed(gap);
+        yield utf8.encode(part);
+      }
+    }
+
+    test('writes the body to the file and reports every step', () async {
+      final server = StreamingFakeServer(
+        (_) async => http.StreamedResponse(
+          chunks(['%PDF', '-1.7', ' tiny']),
+          200,
+          contentLength: 13,
+        ),
+      );
+      final progress = <(int, int?)>[];
+
+      await downloaderFor(server).download(
+        '/api/v1/books/1/file',
+        target(),
+        bearer: 'token-1',
+        onProgress: (received, total) => progress.add((received, total)),
+      );
+
+      expect(target().readAsStringSync(), '%PDF-1.7 tiny');
+      expect(progress, [(4, 13), (8, 13), (13, 13)]);
+      final request = server.requests.single;
+      expect(
+        request.url.toString(),
+        'https://books.example.ts.net/api/v1/books/1/file',
+      );
+      expect(request.headers['authorization'], 'Bearer token-1');
+      expect(request.followRedirects, isFalse);
+    });
+
+    test('without an announced length reports no total', () async {
+      final server = StreamingFakeServer(
+        (_) async => http.StreamedResponse(chunks(['ab', 'c']), 200),
+      );
+      final progress = <(int, int?)>[];
+
+      await downloaderFor(server).download(
+        '/x',
+        target(),
+        onProgress: (received, total) => progress.add((received, total)),
+      );
+
+      expect(progress, [(2, null), (3, null)]);
+    });
+
+    test(
+      'times out on a gap between chunks, never on the whole download',
+      () async {
+        // Each gap is far below the timeout, all of them together far above it.
+        final steady = StreamingFakeServer(
+          (_) async => http.StreamedResponse(
+            chunks([
+              'a',
+              'b',
+              'c',
+              'd',
+              'e',
+              'f',
+            ], gap: const Duration(milliseconds: 40)),
+            200,
+          ),
+        );
+        await downloaderFor(
+          steady,
+          timeout: const Duration(milliseconds: 150),
+        ).download('/x', target());
+        expect(target().readAsStringSync(), 'abcdef');
+
+        final stalled = StreamController<List<int>>()..add(utf8.encode('half'));
+        addTearDown(stalled.close);
+        final stalling = StreamingFakeServer(
+          (_) async => http.StreamedResponse(stalled.stream, 200),
+        );
+        await expectLater(
+          downloaderFor(
+            stalling,
+            timeout: const Duration(milliseconds: 50),
+          ).download('/x', target()),
+          throwsA(isA<ConnectionException>()),
+        );
+        expect(target().existsSync(), isFalse, reason: 'the half is gone');
+      },
+    );
+
+    test('a connection lost midway leaves no file', () async {
+      Stream<List<int>> broken() async* {
+        yield utf8.encode('half');
+        throw http.ClientException('Connection reset by peer');
+      }
+
+      final server = StreamingFakeServer(
+        (_) async => http.StreamedResponse(broken(), 200),
+      );
+      await expectLater(
+        downloaderFor(server).download('/x', target()),
+        throwsA(isA<ConnectionException>()),
+      );
+      expect(target().existsSync(), isFalse);
+    });
+
+    test('a refusal is an ApiException and makes no file', () async {
+      final server = StreamingFakeServer(
+        (_) async => http.StreamedResponse(
+          Stream.value(utf8.encode('{"error":"unauthorized"}')),
+          401,
+        ),
+      );
+      await expectLater(
+        downloaderFor(server).download('/x', target()),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.status, 'status', 401)
+              .having((e) => e.key, 'key', 'unauthorized'),
+        ),
+      );
+      expect(target().existsSync(), isFalse);
+    });
+
+    test('a file that cannot be written is a FileSystemException, not a lost connection', () async {
+      final server = StreamingFakeServer(
+        (_) async => http.StreamedResponse(chunks(['%PDF']), 200),
+      );
+      final nowhere = File('${folder.path}/no-such-folder/book.pdf');
+
+      await expectLater(
+        downloaderFor(server).download('/x', nowhere),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(nowhere.existsSync(), isFalse);
+    });
+  });
+
   test('getText answers the body and refuses like the JSON calls', () async {
     final pong = FakeServer(
       (_) async =>

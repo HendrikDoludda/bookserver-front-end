@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -44,11 +45,59 @@ class ApiClient {
     return utf8.decode(response.bodyBytes);
   }
 
+  /// The answer's body as it came, such as an image.
+  Future<Uint8List> getBytes(String path, {String? bearer}) async {
+    final response = await _send('GET', path, bearer: bearer);
+    return response.bodyBytes;
+  }
+
   Future<Object?> getJson(String path, {String? bearer}) =>
       _json('GET', path, bearer: bearer);
 
   Future<Object?> postJson(String path, {Object? body, String? bearer}) =>
       _json('POST', path, body: body, bearer: bearer);
+
+  /// Streams the answer to [path] into [target], telling [onProgress] the bytes received so far
+  /// and the total the server announced, if it did. [timeout] covers the wait for the answer and
+  /// each gap between two chunks, never the whole download. A download that fails leaves no file
+  /// at [target].
+  Future<void> download(
+    String path,
+    File target, {
+    String? bearer,
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    final request = _request('GET', path, bearer: bearer);
+    StreamIterator<List<int>>? chunks;
+    RandomAccessFile? file;
+    try {
+      final response = await _guarded(
+        () => _http.send(request).timeout(timeout),
+      );
+      if (!_succeeded(response.statusCode)) {
+        throw _refusal(
+          await _guarded(
+            () => http.Response.fromStream(response).timeout(timeout),
+          ),
+        );
+      }
+      // Only the reads from the server are guarded: a file that can't be written, such as on a
+      // full disk, is no connection problem.
+      final opened = file = await target.open(mode: FileMode.write);
+      final body = chunks = StreamIterator(response.stream.timeout(timeout));
+      var received = 0;
+      while (await _guarded(body.moveNext)) {
+        await opened.writeFrom(body.current);
+        received += body.current.length;
+        onProgress?.call(received, response.contentLength);
+      }
+      await opened.close();
+    } on Object {
+      await chunks?.cancel();
+      await _discard(file, target);
+      rethrow;
+    }
+  }
 
   Future<Object?> _json(
     String method,
@@ -76,6 +125,27 @@ class ApiClient {
     String? bearer,
     bool acceptJson = false,
   }) async {
+    final request = _request(
+      method,
+      path,
+      body: body,
+      bearer: bearer,
+      acceptJson: acceptJson,
+    );
+    final response = await _guarded(() => _exchange(request).timeout(timeout));
+    if (_succeeded(response.statusCode)) {
+      return response;
+    }
+    throw _refusal(response);
+  }
+
+  http.Request _request(
+    String method,
+    String path, {
+    Object? body,
+    String? bearer,
+    bool acceptJson = false,
+  }) {
     final request = http.Request(method, origin.resolve(path))
       // The server never redirects: a redirect means something else answered, such as a Wi-Fi
       // login page.
@@ -90,25 +160,40 @@ class ApiClient {
       request.headers['content-type'] = 'application/json';
       request.bodyBytes = utf8.encode(jsonEncode(body));
     }
-
-    final http.Response response;
-    try {
-      response = await _exchange(request).timeout(timeout);
-    } on http.ClientException catch (error) {
-      throw ConnectionException(error);
-    } on IOException catch (error) {
-      throw ConnectionException(error);
-    } on TimeoutException catch (error) {
-      throw ConnectionException(error);
-    }
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return response;
-    }
-    throw _refusal(response);
+    return request;
   }
 
   Future<http.Response> _exchange(http.Request request) async =>
       http.Response.fromStream(await _http.send(request));
+}
+
+/// Runs [exchange], turning a failed connection or a timeout into a [ConnectionException].
+Future<T> _guarded<T>(Future<T> Function() exchange) async {
+  try {
+    return await exchange();
+  } on http.ClientException catch (error) {
+    throw ConnectionException(error);
+  } on IOException catch (error) {
+    throw ConnectionException(error);
+  } on TimeoutException catch (error) {
+    throw ConnectionException(error);
+  }
+}
+
+bool _succeeded(int status) => status >= 200 && status < 300;
+
+/// Throws away a download that failed: its open file, and whatever of it reached the disk.
+Future<void> _discard(RandomAccessFile? file, File target) async {
+  try {
+    await file?.close();
+  } on Exception {
+    // The download has failed already; closing its file can only fail for the same reason.
+  }
+  try {
+    await target.delete();
+  } on FileSystemException {
+    // Nothing reached the disk.
+  }
 }
 
 Exception _refusal(http.Response response) {

@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:bookserver/data/api_client.dart';
 import 'package:bookserver/data/auth_api.dart';
-import 'package:bookserver/data/libraries_api.dart';
+import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/server_address.dart';
 import 'package:bookserver/data/session.dart';
 import 'package:bookserver/data/session_controller.dart';
@@ -57,7 +57,7 @@ void main() {
   ).subtract(beforeTheFirstTokenRunsOut);
 
   Future<List<Library>> libraries(SessionController session) =>
-      session.authorized((api, token) => LibrariesApi(api).list(token));
+      session.authorized((api, token) => BrowseApi(api).libraries(token));
 
   group('load', () {
     test('without a stored connection asks for a server', () async {
