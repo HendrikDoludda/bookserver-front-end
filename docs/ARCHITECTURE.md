@@ -3,7 +3,7 @@
 ## Where things live
 - `lib/main.dart` — start-up: loads the built-in English and the stored connection, then runs the app.
 - `lib/app.dart` — the root: the catalog and the theme above every screen, the screen for the session's stage, and the navigator the other screens are pushed onto.
-- `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept) and `session_controller.dart` (its stages and rules).
+- `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept), `session_controller.dart` (its stages and rules) and `session_http_client.dart` (the session as an `http.Client`, for a package that sends its own requests).
 - `lib/i18n/catalog.dart` — the catalog, `CatalogScope` and `context.t()`.
 - `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `home_screen.dart`, `series_screen.dart`, `books_screen.dart`), the frame of a screen that shows a list from the server (`list_screen.dart`), a message in the middle of a screen (`notice.dart`), the layout of a one-form screen (`form_page.dart`), the text a failure shows (`error_text.dart`), images from the server (`server_image.dart`), the covers made of them (`cover.dart`) and the cards and grid that show them (`cover_grid.dart`), and the design tokens (`theme.dart`).
 - `lib/ui/readers/` — opening a book in the reader for its format (`open_book.dart`) and the readers: `page_reader.dart` for CBZ and image-folder books.
@@ -17,6 +17,8 @@
 - Every server call goes through `ApiClient` (`package:http`); request and answer bodies are JSON, read as UTF-8.
 - A call answers its result or throws one of three: `ApiException` (`{"error": key}` and its status), `ConnectionException` (no connection, a timeout, or a proxy's 502–504 without a key) or `FormatException` (any other answer). A download also throws `FileSystemException` when its file can't be written.
 - A download streams into its file: the timeout covers the wait for the answer and each gap between two chunks, never the whole download, and a download that fails leaves no file.
+- `ApiClient.stream` hands back an answer before its body, for a caller that reads the body itself; there a 304 is an answer, not a failure.
+- A package that sends its own requests, such as pdfrx, gets a `SessionHttpClient`, never a token: every request goes through `SessionController.authorized`, and only GETs to the session's own server go out.
 - Redirects are never followed.
 - Tokens travel only in the `Authorization: Bearer` header — never in a URL — and are never printed or logged; neither are passwords.
 - A server address is an origin — scheme, host and port, nothing else (`parseServerAddress`).

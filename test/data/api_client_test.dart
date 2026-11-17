@@ -368,6 +368,133 @@ void main() {
     });
   });
 
+  group('a stream', () {
+    ApiClient streamerFor(
+      StreamingFakeServer server, {
+      Duration timeout = ApiClient.defaultTimeout,
+    }) => ApiClient(server.client, origin, timeout: timeout);
+
+    Stream<List<int>> body(String text) => Stream.value(utf8.encode(text));
+
+    test(
+      'answers a 206 with its head and body, sending the token and the Range',
+      () async {
+        final server = StreamingFakeServer(
+          (_) async => http.StreamedResponse(
+            body('%PDF'),
+            206,
+            contentLength: 4,
+            headers: {'content-range': 'bytes 0-3/1000'},
+          ),
+        );
+
+        final response = await streamerFor(server).stream(
+          '/api/v1/books/7/file',
+          bearer: 'token-1',
+          headers: {'Range': 'bytes=0-3'},
+        );
+
+        expect(response.statusCode, 206);
+        expect(response.contentLength, 4);
+        expect(response.headers['content-range'], 'bytes 0-3/1000');
+        expect(await response.stream.bytesToString(), '%PDF');
+        final request = server.requests.single;
+        expect(request.method, 'GET');
+        expect(
+          request.url.toString(),
+          'https://books.example.ts.net/api/v1/books/7/file',
+        );
+        expect(request.headers['authorization'], 'Bearer token-1');
+        expect(request.headers['range'], 'bytes=0-3');
+        expect(request.followRedirects, isFalse);
+      },
+    );
+
+    test('keeps its own token over one in the headers', () async {
+      final server = StreamingFakeServer(
+        (_) async => http.StreamedResponse(body(''), 200),
+      );
+
+      await streamerFor(server).stream(
+        '/x',
+        bearer: 'token-1',
+        headers: {'Authorization': 'Bearer other'},
+      );
+
+      expect(server.requests.single.headers['authorization'], 'Bearer token-1');
+    });
+
+    test('answers a 304 as it is', () async {
+      final server = StreamingFakeServer(
+        (_) async => http.StreamedResponse(body(''), 304),
+      );
+
+      final response = await streamerFor(server)
+          .stream('/x', headers: {'If-None-Match': '"v1"'});
+
+      expect(response.statusCode, 304);
+      expect(server.requests.single.headers['if-none-match'], '"v1"');
+    });
+
+    test('a refusal throws what the other calls throw', () async {
+      final refusals = <(int, String, Matcher)>[
+        (
+          401,
+          '{"error":"unauthorized"}',
+          isA<ApiException>()
+              .having((e) => e.status, 'status', 401)
+              .having((e) => e.key, 'key', 'unauthorized'),
+        ),
+        (
+          404,
+          '{"error":"not_found"}',
+          isA<ApiException>().having((e) => e.key, 'key', 'not_found'),
+        ),
+        (502, '', isA<ConnectionException>()),
+        (500, '', isA<FormatException>()),
+      ];
+      for (final (status, text, matcher) in refusals) {
+        final server = StreamingFakeServer(
+          (_) async => http.StreamedResponse(body(text), status),
+        );
+        await expectLater(
+          streamerFor(server).stream('/x'),
+          throwsA(matcher),
+          reason: '$status $text',
+        );
+      }
+    });
+
+    test('no answer is a ConnectionException', () async {
+      final server = StreamingFakeServer(
+        (_) async => throw http.ClientException('Connection refused'),
+      );
+
+      await expectLater(
+        streamerFor(server).stream('/x'),
+        throwsA(isA<ConnectionException>()),
+      );
+    });
+
+    test('a body that stalls ends in a ConnectionException', () async {
+      final stalled = StreamController<List<int>>()..add(utf8.encode('half'));
+      addTearDown(stalled.close);
+      final server = StreamingFakeServer(
+        (_) async => http.StreamedResponse(stalled.stream, 206),
+      );
+
+      final response = await streamerFor(
+        server,
+        timeout: const Duration(milliseconds: 50),
+      ).stream('/x');
+
+      await expectLater(
+        response.stream.toList(),
+        throwsA(isA<ConnectionException>()),
+      );
+    });
+  });
+
   test('getText answers the body and refuses like the JSON calls', () async {
     final pong = FakeServer(
       (_) async =>

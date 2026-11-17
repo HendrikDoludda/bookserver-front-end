@@ -28,13 +28,11 @@ class ConnectionException implements Exception {
 
 /// Sends requests to the server at [origin].
 class ApiClient {
-  ApiClient(
-    this._http,
-    this.origin, {
-    // Long enough for a slow mobile connection, short enough that a server that's gone doesn't
-    // leave a screen waiting.
-    this.timeout = const Duration(seconds: 15),
-  });
+  ApiClient(this._http, this.origin, {this.timeout = defaultTimeout});
+
+  // Long enough for a slow mobile connection, short enough that a server that's gone doesn't
+  // leave a screen waiting.
+  static const defaultTimeout = Duration(seconds: 15);
 
   final http.Client _http;
   final Uri origin;
@@ -56,6 +54,44 @@ class ApiClient {
 
   Future<Object?> postJson(String path, {Object? body, String? bearer}) =>
       _json('POST', path, body: body, bearer: bearer);
+
+  /// Sends a GET for [path] with [headers], such as a `Range`, and answers once the answer's head
+  /// has arrived, for a caller that reads the body itself. A 2xx or a 304 is an answer; any other
+  /// status throws as [getJson] does. [timeout] covers the wait for the answer and each gap
+  /// between two chunks of the body, which reports a lost connection as a [ConnectionException].
+  Future<http.StreamedResponse> stream(
+    String path, {
+    String? bearer,
+    Map<String, String> headers = const {},
+  }) async {
+    final request = _request('GET', path, bearer: bearer);
+    for (final MapEntry(:key, :value) in headers.entries) {
+      request.headers.putIfAbsent(key, () => value);
+    }
+    final response = await _guarded(() => _http.send(request).timeout(timeout));
+    if (!_succeeded(response.statusCode) && response.statusCode != 304) {
+      throw _refusal(
+        await _guarded(
+          () => http.Response.fromStream(response).timeout(timeout),
+        ),
+      );
+    }
+    return http.StreamedResponse(
+      response.stream
+          .timeout(timeout)
+          .handleError(
+            (Object error) => throw ConnectionException(error),
+            test: _isConnectionFailure,
+          ),
+      response.statusCode,
+      contentLength: response.contentLength,
+      request: response.request,
+      headers: response.headers,
+      isRedirect: response.isRedirect,
+      persistentConnection: response.persistentConnection,
+      reasonPhrase: response.reasonPhrase,
+    );
+  }
 
   /// Streams the answer to [path] into [target], telling [onProgress] the bytes received so far
   /// and the total the server announced, if it did. [timeout] covers the wait for the answer and
@@ -171,14 +207,19 @@ class ApiClient {
 Future<T> _guarded<T>(Future<T> Function() exchange) async {
   try {
     return await exchange();
-  } on http.ClientException catch (error) {
-    throw ConnectionException(error);
-  } on IOException catch (error) {
-    throw ConnectionException(error);
-  } on TimeoutException catch (error) {
-    throw ConnectionException(error);
+  } on Object catch (error) {
+    if (_isConnectionFailure(error)) {
+      throw ConnectionException(error);
+    }
+    rethrow;
   }
 }
+
+/// A lost connection or a timeout, the way `package:http` and `dart:io` report them.
+bool _isConnectionFailure(Object? error) =>
+    error is http.ClientException ||
+    error is IOException ||
+    error is TimeoutException;
 
 bool _succeeded(int status) => status >= 200 && status < 300;
 
