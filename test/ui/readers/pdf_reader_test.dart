@@ -154,15 +154,17 @@ void main() {
     },
   );
 
-  test('the viewer renders three window heights ahead, measures pages as they come, '
-      'and draws full detail once scrolling pauses', () {
+  test('the viewer renders half a window height ahead without page shadows, measures pages as '
+      'they come, and draws full detail once scrolling pauses', () {
     const background = Color(0xFF808080);
     final params = pdfViewerParams(
       background: background,
       onPageChanged: (_) {},
     );
 
-    expect(params.verticalCacheExtent, 3);
+    expect(params.verticalCacheExtent, 0.5);
+    expect(params.pageDropShadow, isNull);
+    expect(params.onePassRenderingSizeThreshold, 2000);
     expect(params.behaviorControlParams.loadPageDimensionsOnDemand, isTrue);
     expect(
       params.behaviorControlParams.partialImageLoadingDelay,
