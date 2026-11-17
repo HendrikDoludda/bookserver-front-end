@@ -4,6 +4,7 @@ import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/cover.dart';
 import 'package:bookserver/ui/cover_grid.dart';
 import 'package:bookserver/ui/list_screen.dart';
+import 'package:bookserver/ui/readers/open_book.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// A series' books, in reading order.
@@ -29,7 +30,7 @@ class BooksScreen extends StatelessWidget {
           return CoverCard(
             cover: Cover(session: session, kind: CoverKind.book, id: book.id),
             name: _nameOf(context, book),
-            onTap: () => _sayUnsupported(context),
+            onTap: () => openBook(context, session, book),
           );
         },
       ),
@@ -50,9 +51,3 @@ String _nameOf(BuildContext context, Book book) => switch ((
   (null, final chapter?) => context.t('browse.chapter', {'number': chapter}),
   (null, null) => book.title,
 };
-
-void _sayUnsupported(BuildContext context) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(context.t('reader.unsupported'))));
-}

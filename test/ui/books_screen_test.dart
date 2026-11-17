@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/books_screen.dart';
+import 'package:bookserver/ui/readers/page_reader.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
@@ -206,26 +207,28 @@ void main() {
     expect(volume2, findsOneWidget);
   });
 
-  testWidgets("a tap on a book says the app can't show it yet", (tester) async {
+  testWidgets('a tap on a book opens it in the reader for its format', (
+    tester,
+  ) async {
     await openAlpha(
       tester,
       alphaServer(
         () async => jsonAnswer([
           bookJson(7, volume: 1),
-          bookJson(8, volume: 2, format: 'mobi'),
+          bookJson(8, volume: 2, format: 'pdf'),
         ]),
       ),
     );
     await tester.pumpAndSettle();
-    final unsupported = find.text(english.text('reader.unsupported'));
-
-    await tester.tap(cardNamed(english.text('browse.volume', {'number': 1})));
-    await tester.pumpAndSettle();
-    expect(unsupported, findsOneWidget);
-    expect(find.byType(BooksScreen), findsOneWidget, reason: 'nothing opened');
 
     await tester.tap(cardNamed(english.text('browse.volume', {'number': 2})));
     await tester.pumpAndSettle();
-    expect(unsupported, findsOneWidget, reason: 'one message, not a queue');
+    expect(find.text(english.text('reader.unsupported')), findsOneWidget);
+    expect(find.byType(BooksScreen), findsOneWidget, reason: 'nothing opened');
+
+    await tester.tap(cardNamed(english.text('browse.volume', {'number': 1})));
+    await tester.pumpAndSettle();
+    expect(find.byType(PageReader), findsOneWidget);
+    expect(find.widgetWithText(AppBar, 'Alpha'), findsOneWidget);
   });
 }

@@ -146,6 +146,11 @@ void main() {
     expect(coverPath(CoverKind.library, 3), '/api/v1/covers/library/3');
   });
 
+  test("names a book's page by its number", () {
+    expect(pagePath(5, 1), '/api/v1/books/5/pages/1');
+    expect(pagePath(5, 12), '/api/v1/books/5/pages/12');
+  });
+
   test('an empty list is empty', () async {
     final server = FakeServer((_) async => jsonAnswer([]));
     final api = apiFor(server);
