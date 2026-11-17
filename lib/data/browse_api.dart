@@ -56,6 +56,9 @@ enum CoverKind { book, series, library }
 /// Where the cover of the [kind] with [id] is.
 String coverPath(CoverKind kind, int id) => '/api/v1/covers/${kind.name}/$id';
 
+/// Where the file of the book [bookId] is, which the server also serves in byte ranges.
+String bookFilePath(int bookId) => '/api/v1/books/$bookId/file';
+
 /// Where page [number] of the CBZ or image-folder book [bookId] is, counted from 1.
 String pagePath(int bookId, int number) =>
     '/api/v1/books/$bookId/pages/$number';

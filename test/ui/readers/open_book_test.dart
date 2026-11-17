@@ -1,12 +1,17 @@
+import 'dart:io';
+
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/home_screen.dart';
 import 'package:bookserver/ui/readers/open_book.dart';
 import 'package:bookserver/ui/readers/page_reader.dart';
+import 'package:bookserver/ui/readers/pdf_reader.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:pdfrx/pdfrx.dart';
 
+import '../../support/fake_pdf_engine.dart';
 import '../../support/fake_server.dart';
 import '../../support/screens.dart';
 
@@ -56,11 +61,21 @@ void main() {
     });
   }
 
-  for (final format in [
-    BookFormat.pdf,
-    BookFormat.epub,
-    BookFormat.unsupported,
-  ]) {
+  testWidgets('a pdf book opens in the PDF reader', (tester) async {
+    PdfrxEntryFunctions.instance = FakePdfEngine();
+    final temp = Directory.systemTemp.createTempSync('bookserver-pdf-');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    Pdfrx.cacheDirectoryPath = temp.path;
+    final session = await start(tester);
+
+    openBook(home(tester), session, book(BookFormat.pdf));
+    await finishTransition(tester);
+
+    expect(find.byType(PdfReader), findsOneWidget);
+    expect(find.widgetWithText(AppBar, 'Alpha'), findsOneWidget);
+  });
+
+  for (final format in [BookFormat.epub, BookFormat.unsupported]) {
     testWidgets("a ${format.name} book says the app can't show it yet", (
       tester,
     ) async {
@@ -70,7 +85,6 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(english.text('reader.unsupported')), findsOneWidget);
-      expect(find.byType(PageReader), findsNothing);
       expect(find.byType(HomeScreen), findsOneWidget, reason: 'nothing opened');
     });
   }
@@ -80,9 +94,9 @@ void main() {
   ) async {
     final session = await start(tester);
 
-    openBook(home(tester), session, book(BookFormat.pdf));
-    await tester.pumpAndSettle();
     openBook(home(tester), session, book(BookFormat.epub));
+    await tester.pumpAndSettle();
+    openBook(home(tester), session, book(BookFormat.unsupported));
     await tester.pumpAndSettle();
 
     expect(find.text(english.text('reader.unsupported')), findsOneWidget);
