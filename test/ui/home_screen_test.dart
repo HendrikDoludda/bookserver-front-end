@@ -1,8 +1,7 @@
 import 'dart:async';
 
-import 'package:bookserver/data/auth_api.dart';
-import 'package:bookserver/data/session.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/ui/series_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
@@ -18,22 +17,12 @@ void main() {
   setUpAll(() async {
     english = await Catalog.loadBuiltInEnglish();
   });
-
-  MemorySessionStore signedIn({
-    Duration sessionLasts = const Duration(minutes: 15),
-  }) => MemorySessionStore()
-    ..connection = StoredConnection(server: testOrigin, deviceId: 'device-1')
-        .withTokens(
-          SessionTokens.fromJson(tokensJson(sessionLasts: sessionLasts)),
-        );
+  // Every test asks the same server for the same covers: none may come from a test before.
+  setUp(() => PaintingBinding.instance.imageCache.clear());
 
   http.Response libraries(List<String> names) => jsonAnswer([
     for (final (index, name) in names.indexed) {'id': index + 1, 'name': name},
   ]);
-
-  List<String> paths(FakeServer server) => [
-    for (final request in server.requests) request.url.path,
-  ];
 
   VoidCallback? reloadAction(WidgetTester tester) => tester
       .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.refresh))
@@ -46,21 +35,47 @@ void main() {
   ]) => pumpApp(
     tester,
     catalog: english,
-    store: store ?? signedIn(),
+    store: store ?? signedInStore(),
     server: server,
   );
 
   testWidgets('lists the libraries by name', (tester) async {
-    final server = bookServer((_) async => libraries(['Manga', 'Comics']));
+    final server = bookServer(
+      (request) async => switch (request.url.path) {
+        '/api/v1/libraries' => libraries(['Manga', 'Comics']),
+        _ => notFound(),
+      },
+    );
     await start(tester, server);
     await tester.pumpAndSettle();
 
     expect(find.text('Manga'), findsOneWidget);
     expect(find.text('Comics'), findsOneWidget);
-    final request = server.requests.single;
+    expect(requestedPaths(server), ['/api/v1/libraries']);
+    final request = server.requests.first;
     expect(request.method, 'GET');
-    expect(request.url.path, '/api/v1/libraries');
     expect(request.headers['authorization'], 'Bearer session-1');
+  });
+
+  testWidgets("shows each library's cover, loaded with the session", (
+    tester,
+  ) async {
+    final server = bookServer(
+      (request) async => switch (request.url.path) {
+        '/api/v1/libraries' => libraries(['Manga', 'Comics']),
+        _ => notFound(),
+      },
+    );
+    await start(tester, server);
+    await tester.pumpAndSettle();
+
+    expect(
+      requestedCovers(server),
+      unorderedEquals(['/api/v1/covers/library/1', '/api/v1/covers/library/2']),
+    );
+    for (final request in server.requests) {
+      expect(request.headers['authorization'], 'Bearer session-1');
+    }
   });
 
   testWidgets('says so when there are no libraries', (tester) async {
@@ -72,7 +87,15 @@ void main() {
 
   testWidgets('shows progress while the libraries load', (tester) async {
     final answer = Completer<http.Response>();
-    await start(tester, bookServer((_) => answer.future));
+    await start(
+      tester,
+      bookServer(
+        (request) => switch (request.url.path) {
+          '/api/v1/libraries' => answer.future,
+          _ => Future.value(notFound()),
+        },
+      ),
+    );
     await tester.pump();
 
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
@@ -92,7 +115,11 @@ void main() {
     final second = Completer<http.Response>();
     var calls = 0;
     final server = bookServer(
-      (_) => ++calls == 1 ? Future.value(libraries(['Manga'])) : second.future,
+      (request) => switch (request.url.path) {
+        '/api/v1/libraries' =>
+          ++calls == 1 ? Future.value(libraries(['Manga'])) : second.future,
+        _ => Future.value(notFound()),
+      },
     );
     await start(tester, server);
     await tester.pumpAndSettle();
@@ -109,7 +136,7 @@ void main() {
 
     expect(find.text('Comics'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsNothing);
-    expect(paths(server), ['/api/v1/libraries', '/api/v1/libraries']);
+    expect(requestedPaths(server), ['/api/v1/libraries', '/api/v1/libraries']);
   });
 
   testWidgets('says why the libraries didn\'t load, with Reload under it', (
@@ -117,7 +144,11 @@ void main() {
   ) async {
     var calls = 0;
     final server = bookServer(
-      (_) async => ++calls == 1 ? http.Response('', 503) : libraries(['Manga']),
+      (request) async => switch (request.url.path) {
+        '/api/v1/libraries' =>
+          ++calls == 1 ? http.Response('', 503) : libraries(['Manga']),
+        _ => notFound(),
+      },
     );
     await start(tester, server);
     await tester.pumpAndSettle();
@@ -132,7 +163,7 @@ void main() {
 
     expect(find.text('Manga'), findsOneWidget);
     expect(find.text(english.text('connection.unreachable')), findsNothing);
-    expect(server.requests, hasLength(2));
+    expect(requestedPaths(server), hasLength(2));
   });
 
   testWidgets('shows the reason the server gives for refusing', (tester) async {
@@ -148,29 +179,33 @@ void main() {
   testWidgets('renews a session token about to run out before loading', (
     tester,
   ) async {
-    final store = signedIn(sessionLasts: const Duration(seconds: 30));
+    final store = signedInStore(sessionLasts: const Duration(seconds: 30));
     final server = bookServer(
       (request) async => switch (request.url.path) {
         '/api/v1/auth/refresh' => jsonAnswer(
           tokensJson(session: 'session-2', refresh: 'refresh-2'),
         ),
-        _ => libraries(['Manga']),
+        '/api/v1/libraries' => libraries(['Manga']),
+        _ => notFound(),
       },
     );
     await start(tester, server, store);
     await tester.pumpAndSettle();
 
     expect(find.text('Manga'), findsOneWidget);
-    expect(paths(server), ['/api/v1/auth/refresh', '/api/v1/libraries']);
+    expect(requestedPaths(server), [
+      '/api/v1/auth/refresh',
+      '/api/v1/libraries',
+    ]);
     expect(server.requests.first.headers['authorization'], 'Bearer refresh-1');
-    expect(server.requests.last.headers['authorization'], 'Bearer session-2');
+    expect(server.requests[1].headers['authorization'], 'Bearer session-2');
     expect(store.connection?.tokens?.sessionToken, 'session-2');
   });
 
   testWidgets('a session the server ended leads to the login screen', (
     tester,
   ) async {
-    final store = signedIn();
+    final store = signedInStore();
     final server = bookServer(
       (_) async => jsonAnswer({'error': 'unauthorized'}, 401),
     );
@@ -179,16 +214,20 @@ void main() {
 
     expect(find.text(english.text('login.username_or_email')), findsOneWidget);
     expect(find.text(english.text('errors.unauthorized')), findsOneWidget);
-    expect(paths(server), ['/api/v1/libraries', '/api/v1/auth/refresh']);
+    expect(requestedPaths(server), [
+      '/api/v1/libraries',
+      '/api/v1/auth/refresh',
+    ]);
     expect(store.connection?.tokens, isNull);
   });
 
   testWidgets('signing out leads back to the login screen', (tester) async {
-    final store = signedIn();
+    final store = signedInStore();
     final server = bookServer(
       (request) async => switch (request.url.path) {
         '/api/v1/libraries' => libraries(['Manga']),
-        _ => http.Response('', 204),
+        '/api/v1/auth/logout' => http.Response('', 204),
+        _ => notFound(),
       },
     );
     await start(tester, server, store);
@@ -201,7 +240,10 @@ void main() {
     expect(find.text(english.text('login.username_or_email')), findsOneWidget);
     expect(store.connection?.tokens, isNull);
     expect(store.connection?.deviceId, 'device-1');
-    expect(paths(server), ['/api/v1/libraries', '/api/v1/auth/logout']);
+    expect(requestedPaths(server), [
+      '/api/v1/libraries',
+      '/api/v1/auth/logout',
+    ]);
     expect(server.requests.last.headers['authorization'], 'Bearer refresh-1');
   });
 
@@ -225,5 +267,29 @@ void main() {
 
     expect(find.text(english.text('login.username_or_email')), findsOneWidget);
     expect(find.text('Manga'), findsNothing);
+  });
+
+  testWidgets("a tap on a library opens its series under the library's name", (
+    tester,
+  ) async {
+    final server = bookServer(
+      (request) async => switch (request.url.path) {
+        '/api/v1/libraries' => libraries(['Manga', 'Comics']),
+        '/api/v1/libraries/2/series' => jsonAnswer([]),
+        _ => notFound(),
+      },
+    );
+    await start(tester, server);
+    await tester.pumpAndSettle();
+
+    await tester.tap(cardNamed('Comics'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SeriesScreen), findsOneWidget);
+    expect(find.widgetWithText(AppBar, 'Comics'), findsOneWidget);
+    expect(requestedPaths(server), [
+      '/api/v1/libraries',
+      '/api/v1/libraries/2/series',
+    ]);
   });
 }

@@ -7,8 +7,8 @@ import 'package:bookserver/ui/theme.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// The root: the catalog and the theme above every screen, and the screen for the session's
-/// stage.
-class BookserverApp extends StatelessWidget {
+/// stage, with nothing pushed on top of it once the session has ended.
+class BookserverApp extends StatefulWidget {
   const BookserverApp({
     super.key,
     required this.catalog,
@@ -19,23 +19,49 @@ class BookserverApp extends StatelessWidget {
   final SessionController session;
 
   @override
+  State<BookserverApp> createState() => _BookserverAppState();
+}
+
+class _BookserverAppState extends State<BookserverApp> {
+  final _navigator = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.session.addListener(_closeScreensAfterSession);
+  }
+
+  @override
+  void dispose() {
+    widget.session.removeListener(_closeScreensAfterSession);
+    super.dispose();
+  }
+
+  void _closeScreensAfterSession() {
+    if (widget.session.stage is! LoggedIn) {
+      _navigator.currentState?.popUntil((route) => route.isFirst);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return CatalogScope(
-      catalog: catalog,
+      catalog: widget.catalog,
       child: MaterialApp(
+        navigatorKey: _navigator,
         onGenerateTitle: (context) => context.t('app.name'),
         theme: lightTheme,
         darkTheme: darkTheme,
         home: ListenableBuilder(
-          listenable: session,
-          builder: (context, _) => switch (session.stage) {
-            NeedsServer() => ServerScreen(session: session),
+          listenable: widget.session,
+          builder: (context, _) => switch (widget.session.stage) {
+            NeedsServer() => ServerScreen(session: widget.session),
             LoggedOut(:final server, :final endedKey) => LoginScreen(
-              session: session,
+              session: widget.session,
               server: server,
               endedKey: endedKey,
             ),
-            LoggedIn() => HomeScreen(session: session),
+            LoggedIn() => HomeScreen(session: widget.session),
           },
         ),
       ),
