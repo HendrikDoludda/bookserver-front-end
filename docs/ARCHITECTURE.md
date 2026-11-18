@@ -47,7 +47,7 @@
 - Components read design tokens — `lib/ui/theme.dart` and the theme's colour scheme — never literal colours or sizes.
 - Every visible string goes through `context.t("namespace.key")` against the backend's translation catalog; values go into its `{placeholders}` — `context.t('browse.volume', {'number': 3})` — never by joining strings.
 - A text with a count goes through `context.plural('namespace.key', count)`: one key per plural form (`key.one`, `key.other` …), picked by the catalog language's plural rules (`intl`), `.other` when a form is missing; `{count}` is in every form.
-- An image from the server — a cover, a page — loads through `ServerImage`, never `Image.network`: its request goes through `SessionController.authorized`, and the image cache keeps it under the server and the path.
+- An image from the server — a cover, a page — loads through `ServerImage`, never `Image.network`: its request goes through `SessionController.authorized`, and the image cache keeps it under the server and the path — a load or a decode that failed it drops, so the next request asks the server again.
 - Services and controllers throw typed exceptions, never text; a screen shows a failure as the text `errorTextKey` picks.
 - Screens catch `Exception`s only: an `Error` is a bug and stays loud.
 

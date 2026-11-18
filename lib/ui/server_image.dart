@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:bookserver/data/session_controller.dart';
@@ -39,10 +40,17 @@ class ServerImage extends ImageProvider<ServerImageKey> {
     ServerImageKey key,
     ImageDecoderCallback decode,
   ) async {
-    final bytes = await session.authorized(
-      (api, sessionToken) => api.getBytes(key.path, bearer: sessionToken),
-    );
-    return decode(await ui.ImmutableBuffer.fromUint8List(bytes));
+    try {
+      final bytes = await session.authorized(
+        (api, sessionToken) => api.getBytes(key.path, bearer: sessionToken),
+      );
+      return await decode(await ui.ImmutableBuffer.fromUint8List(bytes));
+    } catch (_) {
+      // A microtask later, as NetworkImage does it: a load that fails at once does so before the
+      // cache has stored it, and evicting earlier would find nothing.
+      scheduleMicrotask(() => PaintingBinding.instance.imageCache.evict(key));
+      rethrow;
+    }
   }
 
   @override
