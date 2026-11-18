@@ -40,6 +40,23 @@ String chapterXhtml(String body) =>
 <body>$body</body>
 </html>''';
 
+/// A fixed-layout page whose `<body>` holds [body], linking [stylesheets], with a viewport meta of
+/// [viewport] unless it's null.
+String fixedPageXhtml(
+  String body, {
+  String? viewport = 'width=1000, height=1500',
+  List<String> stylesheets = const ['style.css'],
+}) =>
+    '''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Not part of the text</title>
+${[for (final sheet in stylesheets) '<link type="text/css" rel="stylesheet" href="$sheet"/>'].join('\n')}
+${viewport == null ? '' : '<meta content="$viewport" name="viewport"/>'}
+</head>
+<body>$body</body>
+</html>''';
+
 /// The bytes of an EPUB, a zip archive, holding [files] (path → text or bytes).
 List<int> epubBytes(Map<String, Object> files) {
   final archive = Archive();
