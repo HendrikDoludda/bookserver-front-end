@@ -27,6 +27,7 @@ class EpubReader extends StatefulWidget {
 class _EpubReaderState extends State<EpubReader> {
   File? _file;
   EpubBook? _epub;
+  List<_Block> _blocks = const [];
   String? _errorKey;
   double? _received;
 
@@ -75,7 +76,15 @@ class _EpubReaderState extends State<EpubReader> {
         setState(() => _errorKey = 'reader.open_failed');
         return;
       }
-      setState(() => _epub = epub);
+      final blocks = [
+        for (var chapter = 0; chapter < epub.chapters.length; chapter++)
+          for (final (index, html) in epub.chapterBlocks(chapter).indexed)
+            (chapter: chapter, html: html, startsChapter: index == 0),
+      ];
+      setState(() {
+        _epub = epub;
+        _blocks = blocks;
+      });
     } on Exception catch (error) {
       if (mounted) {
         setState(
@@ -120,37 +129,62 @@ class _EpubReaderState extends State<EpubReader> {
         ),
       );
     }
-    return _Chapters(book: epub);
+    return _Blocks(book: epub, blocks: _blocks);
   }
 }
 
-/// A book's chapters, one after the other, in a column that keeps lines easy to follow.
-class _Chapters extends StatelessWidget {
-  const _Chapters({required this.book});
+/// A block of a chapter — a paragraph, a heading, a list — as HTML.
+typedef _Block = ({int chapter, String html, bool startsChapter});
+
+/// A book's blocks, chapter after chapter, in a column that keeps lines easy to follow.
+class _Blocks extends StatelessWidget {
+  const _Blocks({required this.book, required this.blocks});
 
   final EpubBook book;
+  final List<_Block> blocks;
 
   @override
   Widget build(BuildContext context) {
     final imageWidth = (Widths.reading * MediaQuery.devicePixelRatioOf(context))
         .round();
-    final textStyle = Theme.of(context).textTheme.bodyLarge;
+    final textStyle = Theme.of(context).textTheme.bodyLarge!;
+    // One item per block, each built in the frame it appears: an item that grows once it's
+    // placed above the screen pushes down the text being read.
     return ListView.builder(
-      itemCount: book.chapters.length,
-      itemBuilder: (context, index) => Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: Widths.reading),
-          child: Padding(
-            padding: const EdgeInsets.all(Spacing.large),
-            child: HtmlWidget(
-              book.chapterBody(index),
-              baseUrl: Uri(scheme: _scheme, path: '/${book.chapters[index]}'),
-              factoryBuilder: () => _BookPictures(book, imageWidth),
-              textStyle: textStyle,
+      itemCount: blocks.length,
+      itemBuilder: (context, index) {
+        final block = blocks[index];
+        final gapAbove = index == 0
+            ? Spacing.large
+            : block.startsChapter
+            ? Spacing.large * 2
+            // HtmlWidget leaves out the margins at its edges; 1 em is the gap it puts between
+            // two paragraphs.
+            : textStyle.fontSize!;
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: Widths.reading),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                Spacing.large,
+                gapAbove,
+                Spacing.large,
+                index == blocks.length - 1 ? Spacing.large : 0,
+              ),
+              child: HtmlWidget(
+                block.html,
+                buildAsync: false,
+                baseUrl: Uri(
+                  scheme: _scheme,
+                  path: '/${book.chapters[block.chapter]}',
+                ),
+                factoryBuilder: () => _BookPictures(book, imageWidth),
+                textStyle: textStyle,
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

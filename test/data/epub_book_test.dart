@@ -96,20 +96,47 @@ void main() {
     expect(book.chapters, ['one.xhtml']);
   });
 
-  test("gives what is inside a chapter's body, not its head", () {
+  test("gives the blocks inside a chapter's body, not its head", () {
+    final book = open({
+      'META-INF/container.xml': containerXml(),
+      'OEBPS/content.opf': packageXml(
+        {'one': 'one.xhtml', 'empty': 'empty.xhtml'},
+        ['one', 'empty'],
+      ),
+      'OEBPS/one.xhtml': chapterXhtml('<h1>Chapter 1</h1><p>It begins.</p>'),
+      'OEBPS/empty.xhtml': chapterXhtml(' '),
+    });
+    addTearDown(book.close);
+
+    expect(book.chapterBlocks(0), ['<h1>Chapter 1</h1>', '<p>It begins.</p>']);
+    expect(book.chapterBlocks(1), isEmpty);
+  });
+
+  test('splits a chapter into blocks, opening up the wrappers around them', () {
     final book = open({
       'META-INF/container.xml': containerXml(),
       'OEBPS/content.opf': packageXml({'one': 'one.xhtml'}, ['one']),
       'OEBPS/one.xhtml': chapterXhtml(
-        '<h1>Chapter 1</h1><p>It begins&nbsp;here.</p>',
+        '<section class="chapter" title="Three &amp; more">'
+        '<div class="titlepage"><div><h1 class="title">Three</h1></div></div>'
+        '<p>One</p> <a id="page5"/> <!-- a note -->'
+        '<p>Two <em>and</em> more</p>'
+        'Loose <b>text</b><img src="a.png"/>'
+        '<div class="x"/>'
+        '<ul><li>a</li></ul>'
+        '</section>',
       ),
     });
     addTearDown(book.close);
 
-    final body = book.chapterBody(0);
-    expect(body, contains('<h1>Chapter 1</h1>'));
-    expect(body, contains('It begins'));
-    expect(body, isNot(contains('Not part of the text')));
+    const section = '<section class="chapter" title="Three &amp; more">';
+    expect(book.chapterBlocks(0), [
+      '$section<div class="titlepage"><div><h1 class="title">Three</h1></div></div></section>',
+      '$section<p>One</p></section>',
+      '$section<p>Two <em>and</em> more</p></section>',
+      '${section}Loose <b>text</b><img src="a.png"/></section>',
+      '$section<ul><li>a</li></ul></section>',
+    ]);
   });
 
   test('reads a chapter as XML: a tag closed with /> holds nothing', () {
@@ -123,19 +150,24 @@ void main() {
     });
     addTearDown(book.close);
 
-    // Read back the way the reader's HTML view reads it.
-    final body = html.parse(book.chapterBody(0)).body!;
-    expect(body.querySelectorAll('a'), hasLength(1));
-    expect(body.querySelector('a#page12')!.nodes, isEmpty);
-    expect(body.querySelector('div.x')!.nodes, isEmpty);
-    expect(body.querySelectorAll('br'), hasLength(1));
+    final blocks = book.chapterBlocks(0);
     expect(
-      [for (final paragraph in body.querySelectorAll('p')) paragraph.text],
-      ['Before after the anchor.', 'Next', 'Onetwo & three four'],
+      blocks,
+      hasLength(3),
+      reason: 'the empty <div class="x"/> shows nothing',
     );
+    // Read back the way the reader's HTML view reads them.
+    final [before, next, lines] = [
+      for (final block in blocks) html.parse(block).body!,
+    ];
+    expect(before.querySelector('a#page12')!.nodes, isEmpty);
+    expect(before.text, 'Before after the anchor.');
+    expect(next.text, 'Next');
+    expect(lines.querySelectorAll('br'), hasLength(1));
+    expect(lines.text, 'Onetwo & three${String.fromCharCode(0xA0)}four');
   });
 
-  test('a chapter that is no well-formed XML still gives its body', () {
+  test('a chapter that is no well-formed XML is one block', () {
     final book = open({
       'META-INF/container.xml': containerXml(),
       'OEBPS/content.opf': packageXml(
@@ -147,12 +179,12 @@ void main() {
     });
     addTearDown(book.close);
 
-    final unclosed = html.parse(book.chapterBody(0)).body!;
+    final unclosed = html.parse(book.chapterBlocks(0).single).body!;
     expect(
       [for (final paragraph in unclosed.querySelectorAll('p')) paragraph.text],
       ['First', 'Second'],
     );
-    expect(book.chapterBody(1), contains('Typed'));
+    expect(book.chapterBlocks(1).single, contains('Typed'));
   });
 
   test('reads any file in the book, and nothing for one it lacks', () {

@@ -57,42 +57,132 @@ class EpubBook {
   /// The file at [path] in the archive, or null when the book has none there.
   Uint8List? read(String path) => _bytesAt(_archive, path);
 
-  /// What is inside chapter [index]'s `<body>`, as HTML.
-  String chapterBody(int index) {
+  /// What chapter [index]'s `<body>` holds, as blocks of HTML in reading order — paragraphs,
+  /// headings, lists — each inside the tags of the elements that wrap it, so their styles still
+  /// apply.
+  List<String> chapterBlocks(int index) {
     final text = utf8.decode(read(chapters[index])!, allowMalformed: true);
+    final XmlDocument document;
     try {
       // XHTML read as XML: an HTML parser ignores `/>` on a tag like `<a id="page12"/>`, which
       // then swallows the text after it.
-      return _bodyAsHtml(
-        XmlDocument.parse(
-          text,
-          entityMapping: const XmlDefaultEntityMapping.html5(),
-        ),
+      document = XmlDocument.parse(
+        text,
+        entityMapping: const XmlDefaultEntityMapping.html5(),
       );
     } on FormatException {
-      // A chapter that isn't well-formed XML still shows, as an HTML parser makes it out.
-      return html.parse(text).body?.innerHtml ?? '';
+      // A chapter that isn't well-formed XML still shows, as one block an HTML parser makes out.
+      final body = html.parse(text).body?.innerHtml.trim() ?? '';
+      return body.isEmpty ? const [] : [body];
     }
+    final body = document.rootElement.childElements
+        .where((element) => element.localName == 'body')
+        .firstOrNull;
+    if (body == null) {
+      return const [];
+    }
+    // Written for an HTML parser to read again, which ignores `/>` on an element that can hold
+    // content.
+    for (final element in body.descendantElements) {
+      element.isSelfClosing = _voidElements.contains(element.localName);
+    }
+    final blocks = <String>[];
+    _addBlocks(body, '', '', blocks);
+    return blocks;
   }
 
   /// Lets go of the file; nothing can be read after.
   void close() => _input.closeSync();
 }
 
-/// What [document]'s `<body>` holds, for an HTML parser to read again: every element that can
-/// hold content is written with its end tag, since an HTML parser ignores `/>` on it.
-String _bodyAsHtml(XmlDocument document) {
-  final body = document.rootElement.childElements
-      .where((element) => element.localName == 'body')
-      .firstOrNull;
-  if (body == null) {
-    return '';
+/// Adds what [parent] holds to [blocks], each block written between [opening] and [closing], the
+/// tags of the elements around it. A wrapper such as `<section>` is opened up into the blocks
+/// inside it; loose text and inline elements between blocks become a block of their own.
+void _addBlocks(
+  XmlElement parent,
+  String opening,
+  String closing,
+  List<String> blocks,
+) {
+  final loose = <XmlNode>[];
+  void addLoose() {
+    if (loose.any(_shows)) {
+      blocks.add(
+        '$opening${loose.map((node) => node.toXmlString()).join()}$closing',
+      );
+    }
+    loose.clear();
   }
-  for (final element in body.descendantElements) {
-    element.isSelfClosing = _voidElements.contains(element.localName);
+
+  for (final node in parent.children) {
+    if (node is XmlElement && _wrappers.contains(node.localName)) {
+      addLoose();
+      final attributes = node.attributes
+          .map((attribute) => ' $attribute')
+          .join();
+      final name = node.name.qualified;
+      _addBlocks(
+        node,
+        '$opening<$name$attributes>',
+        '</$name>$closing',
+        blocks,
+      );
+    } else if (node is XmlElement && _blockElements.contains(node.localName)) {
+      addLoose();
+      blocks.add('$opening${node.toXmlString()}$closing');
+    } else {
+      loose.add(node);
+    }
   }
-  return body.innerXml;
+  addLoose();
 }
+
+/// Whether [node] puts anything on the page: not HTML's white space, a comment, or an empty
+/// element such as the page marker `<a id="page12"/>`.
+bool _shows(XmlNode node) => switch (node) {
+  XmlText() => node.value.replaceAll(_whiteSpace, '').isNotEmpty,
+  XmlElement() => node.children.isNotEmpty || node.localName == 'img',
+  XmlCDATA() => true,
+  _ => false,
+};
+
+/// HTML's white space; a no-break space is text.
+final _whiteSpace = RegExp(r'[ \t\n\r\f]');
+
+/// Elements that only group blocks, opened up into the blocks inside them.
+const _wrappers = {
+  'article',
+  'aside',
+  'div',
+  'footer',
+  'header',
+  'main',
+  'nav',
+  'section',
+};
+
+/// Elements that are one block each.
+const _blockElements = {
+  'address',
+  'blockquote',
+  'center',
+  'details',
+  'dl',
+  'figure',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'hgroup',
+  'hr',
+  'ol',
+  'p',
+  'pre',
+  'table',
+  'ul',
+};
 
 /// HTML's elements that never hold content: `<br></br>` would be read as two line breaks.
 const _voidElements = {

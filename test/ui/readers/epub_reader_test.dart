@@ -6,7 +6,9 @@ import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/epub_image.dart';
 import 'package:bookserver/ui/home_screen.dart';
 import 'package:bookserver/ui/readers/open_book.dart';
+import 'package:bookserver/ui/theme.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -54,6 +56,26 @@ void main() {
       '<p><img src="https://tracker.example/pixel.png" alt="A tracker"/></p>',
     ),
     'OEBPS/images/dish.png': onePixelPng,
+  });
+
+  /// A flowing EPUB of three chapters of 60 numbered paragraphs, each chapter wrapped the way
+  /// Gatsby's are and longer than `HtmlWidget` builds in the frame it appears.
+  final longBook = epubBytes({
+    'META-INF/container.xml': containerXml(),
+    'OEBPS/content.opf': packageXml(
+      {
+        for (var chapter = 1; chapter <= 3; chapter++)
+          'c$chapter': 'c$chapter.xhtml',
+      },
+      ['c1', 'c2', 'c3'],
+    ),
+    for (var chapter = 1; chapter <= 3; chapter++)
+      'OEBPS/c$chapter.xhtml': chapterXhtml(
+        '<section class="chapter" title="Chapter $chapter">'
+        '<div class="titlepage"><div><h1>Chapter $chapter</h1></div></div>'
+        '${[for (var paragraph = 1; paragraph <= 60; paragraph++) '<p>Chapter $chapter, paragraph $paragraph: ${'words ' * 30}</p>'].join()}'
+        '</section>',
+      ),
   });
 
   http.Response file(List<int> bytes) => http.Response.bytes(
@@ -137,6 +159,143 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'scrolling back up moves the text exactly as far as the list scrolls',
+    (tester) async {
+      await openReader(
+        tester,
+        fileServer(() async => file(longBook)),
+        find.textContaining('Chapter 1, paragraph 1:', findRichText: true),
+      );
+      final list = find.byType(Scrollable).last;
+      final position = tester.state<ScrollableState>(list).position;
+      Finder paragraph(String label) =>
+          find.textContaining('$label:', findRichText: true);
+
+      /// The label of a paragraph whose top is in the upper half of the list.
+      String labelOnScreen() {
+        final screen = tester.getRect(list);
+        for (final element
+            in find
+                .textContaining(', paragraph ', findRichText: true)
+                .evaluate()) {
+          final top = (element.renderObject! as RenderBox)
+              .localToGlobal(Offset.zero)
+              .dy;
+          if (top > screen.top && top < screen.center.dy) {
+            return (element.widget as RichText).text
+                .toPlainText()
+                .split(':')
+                .first;
+          }
+        }
+        throw StateError('No paragraph in the upper half of the list.');
+      }
+
+      /// Whether the paragraph [label] starts on screen; a whole chapter built as one widget holds
+      /// all its paragraphs, on screen or not.
+      bool onScreen(String label) {
+        if (paragraph(label).evaluate().isEmpty) {
+          return false;
+        }
+        final top = tester.getTopLeft(paragraph(label)).dy;
+        final screen = tester.getRect(list);
+        return top >= screen.top && top < screen.bottom;
+      }
+
+      /// Lets work that only finishes in real time — `HtmlWidget` parses a long text in another
+      /// isolate — catch up.
+      Future<void> settle() => tester.runAsync(() async {
+        for (var frame = 0; frame < 5; frame++) {
+          await tester.pump();
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+
+      for (
+        var step = 0;
+        step < 200 && !onScreen('Chapter 3, paragraph 40');
+        step++
+      ) {
+        position.jumpTo(position.pixels + 600);
+        await settle();
+      }
+      expect(onScreen('Chapter 3, paragraph 40'), isTrue);
+
+      // Back up until chapter 2, long gone from the list, is built again and on screen.
+      for (
+        var step = 0;
+        step < 200 && !onScreen('Chapter 2, paragraph 59');
+        step++
+      ) {
+        final label = labelOnScreen();
+        final before = tester.getTopLeft(paragraph(label)).dy;
+        position.jumpTo(position.pixels - 150);
+        await settle();
+        expect(
+          paragraph(label),
+          findsOneWidget,
+          reason: '$label, scrolling up 150 from step $step',
+        );
+        expect(
+          tester.getTopLeft(paragraph(label)).dy,
+          moreOrLessEquals(before + 150, epsilon: 0.5),
+          reason: '$label, scrolling up 150 from step $step',
+        );
+      }
+      expect(onScreen('Chapter 2, paragraph 59'), isTrue);
+    },
+  );
+
+  testWidgets('each paragraph is an item of its own', (tester) async {
+    final first = find.textContaining(
+      'Chapter 1, paragraph 1:',
+      findRichText: true,
+    );
+    await openReader(tester, fileServer(() async => file(longBook)), first);
+
+    final item = tester.widget<HtmlWidget>(
+      find.ancestor(of: first, matching: find.byType(HtmlWidget)),
+    );
+    expect(item.html, contains('Chapter 1, paragraph 1:'));
+    expect(item.html, isNot(contains('paragraph 2:')));
+    expect(item.buildAsync, isFalse);
+  });
+
+  testWidgets('paragraphs are 1 em apart, a new chapter further', (
+    tester,
+  ) async {
+    await openReader(
+      tester,
+      fileServer(() async => file(longBook)),
+      find.textContaining('Chapter 1, paragraph 1:', findRichText: true),
+    );
+    final em = Theme.of(tester.element(find.byType(ListView)))
+        .textTheme
+        .bodyLarge!
+        .fontSize!;
+    Rect rectOf(Finder finder) => tester.getRect(finder);
+    Finder paragraph(String label) =>
+        find.textContaining('$label:', findRichText: true);
+
+    expect(
+      rectOf(paragraph('Chapter 1, paragraph 2')).top -
+          rectOf(paragraph('Chapter 1, paragraph 1')).bottom,
+      em,
+    );
+
+    final heading = find.text('Chapter 2', findRichText: true);
+    await tester.scrollUntilVisible(
+      heading,
+      500,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(
+      rectOf(heading).top - rectOf(paragraph('Chapter 1, paragraph 60')).bottom,
+      Spacing.large * 2,
+    );
+  });
 
   testWidgets('shows a picture from the book, and none from anywhere else', (
     tester,
