@@ -60,12 +60,56 @@ class EpubBook {
   /// What is inside chapter [index]'s `<body>`, as HTML.
   String chapterBody(int index) {
     final text = utf8.decode(read(chapters[index])!, allowMalformed: true);
-    return html.parse(text).body?.innerHtml ?? '';
+    try {
+      // XHTML read as XML: an HTML parser ignores `/>` on a tag like `<a id="page12"/>`, which
+      // then swallows the text after it.
+      return _bodyAsHtml(
+        XmlDocument.parse(
+          text,
+          entityMapping: const XmlDefaultEntityMapping.html5(),
+        ),
+      );
+    } on FormatException {
+      // A chapter that isn't well-formed XML still shows, as an HTML parser makes it out.
+      return html.parse(text).body?.innerHtml ?? '';
+    }
   }
 
   /// Lets go of the file; nothing can be read after.
   void close() => _input.closeSync();
 }
+
+/// What [document]'s `<body>` holds, for an HTML parser to read again: every element that can
+/// hold content is written with its end tag, since an HTML parser ignores `/>` on it.
+String _bodyAsHtml(XmlDocument document) {
+  final body = document.rootElement.childElements
+      .where((element) => element.localName == 'body')
+      .firstOrNull;
+  if (body == null) {
+    return '';
+  }
+  for (final element in body.descendantElements) {
+    element.isSelfClosing = _voidElements.contains(element.localName);
+  }
+  return body.innerXml;
+}
+
+/// HTML's elements that never hold content: `<br></br>` would be read as two line breaks.
+const _voidElements = {
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'source',
+  'track',
+  'wbr',
+};
 
 Uint8List? _bytesAt(Archive archive, String path) {
   final entry = archive.find(path);

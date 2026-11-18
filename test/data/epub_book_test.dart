@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:bookserver/data/epub_book.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:html/parser.dart' as html;
 
 import '../support/epubs.dart';
 import '../support/images.dart';
@@ -109,6 +110,49 @@ void main() {
     expect(body, contains('<h1>Chapter 1</h1>'));
     expect(body, contains('It begins'));
     expect(body, isNot(contains('Not part of the text')));
+  });
+
+  test('reads a chapter as XML: a tag closed with /> holds nothing', () {
+    final book = open({
+      'META-INF/container.xml': containerXml(),
+      'OEBPS/content.opf': packageXml({'one': 'one.xhtml'}, ['one']),
+      'OEBPS/one.xhtml': chapterXhtml(
+        '<p>Before<a id="page12"/> after the anchor.</p><div class="x"/><p>Next</p>'
+        '<p>One<br/>two &amp; three&nbsp;four</p>',
+      ),
+    });
+    addTearDown(book.close);
+
+    // Read back the way the reader's HTML view reads it.
+    final body = html.parse(book.chapterBody(0)).body!;
+    expect(body.querySelectorAll('a'), hasLength(1));
+    expect(body.querySelector('a#page12')!.nodes, isEmpty);
+    expect(body.querySelector('div.x')!.nodes, isEmpty);
+    expect(body.querySelectorAll('br'), hasLength(1));
+    expect(
+      [for (final paragraph in body.querySelectorAll('p')) paragraph.text],
+      ['Before after the anchor.', 'Next', 'Onetwo & three four'],
+    );
+  });
+
+  test('a chapter that is no well-formed XML still gives its body', () {
+    final book = open({
+      'META-INF/container.xml': containerXml(),
+      'OEBPS/content.opf': packageXml(
+        {'unclosed': 'unclosed.xhtml', 'prefixed': 'prefixed.xhtml'},
+        ['unclosed', 'prefixed'],
+      ),
+      'OEBPS/unclosed.xhtml': '<html><body><p>First<br><p>Second</body></html>',
+      'OEBPS/prefixed.xhtml': '<html><body><section epub:type="chapter"><p>Typed</p></section></body></html>',
+    });
+    addTearDown(book.close);
+
+    final unclosed = html.parse(book.chapterBody(0)).body!;
+    expect(
+      [for (final paragraph in unclosed.querySelectorAll('p')) paragraph.text],
+      ['First', 'Second'],
+    );
+    expect(book.chapterBody(1), contains('Typed'));
   });
 
   test('reads any file in the book, and nothing for one it lacks', () {
