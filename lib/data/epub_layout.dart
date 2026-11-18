@@ -55,11 +55,16 @@ class PageBackground {
 class TextLine {
   const TextLine({
     required this.position,
+    required this.style,
     required this.runs,
     this.rotation = 0,
   });
 
   final Offset position;
+
+  /// The line's own text style: as in CSS, the line is at least as tall as its line height,
+  /// whatever the styles of its runs.
+  final RunStyle style;
 
   /// Clockwise, in radians, around the line's top left.
   final double rotation;
@@ -273,6 +278,7 @@ class _PageReader {
         lines.add(
           TextLine(
             position: position,
+            style: _textStyleOf(element),
             rotation:
                 _winning(own, 'transform', (value) => _rotation(value.text)) ??
                 0,

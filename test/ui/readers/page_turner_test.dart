@@ -145,6 +145,73 @@ void main() {
     },
   );
 
+  testWidgets('a page can turn straight to another, at normal size', (
+    tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      catalog: english,
+      screen: Scaffold(
+        body: PageTurner(
+          count: 3,
+          pageBuilder: (context, index, decodeWidth) => Center(
+            child: TextButton(
+              onPressed: () => PageTurner.of(context).turnTo(2),
+              child: Text('box $index'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('box 0'));
+    await tester.pumpAndSettle();
+    expect(find.text('box 2'), findsOneWidget);
+    expect(find.text(pageOf(3, 3)), findsOneWidget);
+
+    final zoom = tester
+        .widget<InteractiveViewer>(find.byType(InteractiveViewer))
+        .transformationController!;
+    zoom.value = Matrix4.diagonal3Values(2, 2, 1);
+    await tester.pump();
+    final turner = tester.state<PageTurnerState>(find.byType(PageTurner));
+    turner.turnTo(0);
+    await tester.pumpAndSettle();
+    expect(find.text(pageOf(1, 3)), findsOneWidget);
+    expect(zoom.value.getMaxScaleOnAxis(), 1);
+
+    turner.turnTo(3);
+    await tester.pumpAndSettle();
+    expect(
+      find.text(pageOf(1, 3)),
+      findsOneWidget,
+      reason: 'a page that does not exist',
+    );
+  });
+
+  testWidgets('says whether its pages are moving', (tester) async {
+    final builds = await showTurner(tester);
+    expect(builds, isNotEmpty);
+    final moving = tester
+        .state<PageTurnerState>(find.byType(PageTurner))
+        .moving;
+    expect(moving.value, isFalse);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(moving.value, isTrue, reason: 'in the middle of a turn');
+
+    await tester.pumpAndSettle();
+    expect(moving.value, isFalse);
+
+    await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(moving.value, isTrue, reason: 'in the middle of a swipe');
+    await tester.pumpAndSettle();
+    expect(moving.value, isFalse);
+    expect(find.text(pageOf(3, 3)), findsOneWidget);
+  });
+
   test('a turner without pages is a mistake', () {
     expect(
       () => PageTurner(

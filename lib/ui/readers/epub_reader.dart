@@ -9,6 +9,8 @@ import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/epub_image.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
+import 'package:bookserver/ui/readers/fixed_layout_page.dart';
+import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:material_ui/material_ui.dart';
@@ -29,6 +31,7 @@ class _EpubReaderState extends State<EpubReader> {
   File? _file;
   EpubBook? _epub;
   List<_Block> _blocks = const [];
+  FixedLayoutBook? _fixedLayout;
   String? _errorKey;
   double? _received;
 
@@ -75,6 +78,20 @@ class _EpubReaderState extends State<EpubReader> {
         epub = EpubBook.open(file);
       } on FormatException {
         setState(() => _errorKey = 'reader.open_failed');
+        return;
+      }
+      if (epub.isFixedLayout) {
+        final fixedLayout = FixedLayoutBook(epub, widget.book.id);
+        // The first page right away, while "Opening the book…" still shows.
+        await fixedLayout.prepare(0);
+        if (!mounted) {
+          epub.close();
+          return;
+        }
+        setState(() {
+          _epub = epub;
+          _fixedLayout = fixedLayout;
+        });
         return;
       }
       final blocks = [
@@ -132,6 +149,17 @@ class _EpubReaderState extends State<EpubReader> {
         action: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: Widths.form),
           child: LinearProgressIndicator(value: _received),
+        ),
+      );
+    }
+    if (_fixedLayout case final fixedLayout?) {
+      return PageTurner(
+        count: epub.chapters.length,
+        pageBuilder: (context, index, decodeWidth) => FixedLayoutPage(
+          key: ValueKey(index),
+          book: fixedLayout,
+          index: index,
+          decodeWidth: decodeWidth,
         ),
       );
     }

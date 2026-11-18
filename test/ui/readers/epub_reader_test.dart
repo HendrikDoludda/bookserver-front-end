@@ -7,7 +7,9 @@ import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/epub_image.dart';
 import 'package:bookserver/ui/home_screen.dart';
 import 'package:bookserver/ui/readers/open_book.dart';
+import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/theme.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:http/http.dart' as http;
@@ -89,6 +91,22 @@ void main() {
         for (var block = 1; block <= 30; block++)
           '<p>Long $block: ${'words ' * 100}</p>',
       ].join(),
+    ),
+  });
+
+  /// A fixed-layout EPUB of two pages.
+  final fixedBook = epubBytes({
+    'META-INF/container.xml': containerXml(),
+    'OEBPS/content.opf': packageXml(
+      {'p1': 'p1.xhtml', 'p2': 'p2.xhtml'},
+      ['p1', 'p2'],
+      fixedLayout: true,
+    ),
+    'OEBPS/p1.xhtml': fixedPageXhtml(
+      '<div style="left:100px;top:100px">The first page</div>',
+    ),
+    'OEBPS/p2.xhtml': fixedPageXhtml(
+      '<div style="left:100px;top:100px">The second page</div>',
     ),
   });
 
@@ -343,6 +361,29 @@ void main() {
         reason: 'the length guessed at step $step of ${lengths.length}',
       );
     }
+  });
+
+  testWidgets('a fixed-layout book opens page by page in the page turner', (
+    tester,
+  ) async {
+    await openReader(
+      tester,
+      fileServer(() async => file(fixedBook)),
+      find.text('The first page', findRichText: true),
+    );
+
+    expect(find.byType(PageTurner), findsOneWidget);
+    expect(
+      find.text(english.text('reader.page_of', {'page': 1, 'count': 2})),
+      findsOneWidget,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(find.text('The second page', findRichText: true), findsOneWidget);
+    expect(
+      find.text(english.text('reader.page_of', {'page': 2, 'count': 2})),
+      findsOneWidget,
+    );
   });
 
   testWidgets('shows a picture from the book, and none from anywhere else', (

@@ -48,3 +48,4 @@ Frontend rules only, in the backend's table format.
 | Rule | Why it bites |
 |---|---|
 | Judge rendering performance on an Apple Silicon Mac or a phone, never on the Intel Mac | Impeller on Intel GPUs holds gigabytes of graphics memory and stalls frames up to 0.8 s; a day went into tuning pdfrx against it |
+| Never queue work with `scheduleTask(…, Priority.idle)` | While anything animates, Flutter requeues the task with `Timer.run` in a busy loop; a widget test's fake clock then runs that loop forever and the test hangs |

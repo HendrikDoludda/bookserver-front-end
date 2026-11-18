@@ -117,6 +117,8 @@ span.big { font-size: 2em; color: #fff; }''',
     ).lines.single;
 
     expect(texts(line), ['plain ', 'big', ' ', 'same']);
+    expect(line.style.fontSize, 20, reason: "the line's own style");
+    expect(line.style.lineHeight, 30);
     final [plain, big, space, same] = [for (final run in line.runs) run.style];
     expect(plain.fontFamily, 'Merriam Sans');
     expect(plain.fontSize, 20);

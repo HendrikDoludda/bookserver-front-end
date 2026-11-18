@@ -1,5 +1,6 @@
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/theme.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -16,12 +17,20 @@ class PageTurner extends StatefulWidget {
   final Widget Function(BuildContext context, int index, int decodeWidth)
   pageBuilder;
 
+  /// The page turner that shows [context], to turn its pages from inside one.
+  static PageTurnerState of(BuildContext context) =>
+      context.findAncestorStateOfType<PageTurnerState>()!;
+
   @override
-  State<PageTurner> createState() => _PageTurnerState();
+  State<PageTurner> createState() => PageTurnerState();
 }
 
-class _PageTurnerState extends State<PageTurner> {
+class PageTurnerState extends State<PageTurner> {
   final _pages = PageController();
+  final _moving = ValueNotifier(false);
+
+  /// Whether the pages are moving: a swipe, a turn, a link's jump.
+  ValueListenable<bool> get moving => _moving;
 
   // One zoom for every page: turning the page resets it, and while a page is zoomed no swipe
   // reaches the pages beside it.
@@ -47,8 +56,20 @@ class _PageTurnerState extends State<PageTurner> {
   @override
   void dispose() {
     _pages.dispose();
+    _moving.dispose();
     _zoom.dispose();
     super.dispose();
+  }
+
+  bool _scrolled(ScrollNotification notification) {
+    if (notification.depth == 0) {
+      if (notification is ScrollStartNotification) {
+        _moving.value = true;
+      } else if (notification is ScrollEndNotification) {
+        _moving.value = false;
+      }
+    }
+    return false;
   }
 
   void _zoomChanged() {
@@ -57,6 +78,15 @@ class _PageTurnerState extends State<PageTurner> {
     if (zoomed != _zoomed) {
       setState(() => _zoomed = zoomed);
     }
+  }
+
+  /// Goes straight to page [index], at normal size, as a link does.
+  void turnTo(int index) {
+    if (index < 0 || index >= widget.count) {
+      return;
+    }
+    _zoom.value = Matrix4.identity();
+    _pages.jumpToPage(index);
   }
 
   void _turn(int by) {
@@ -86,18 +116,23 @@ class _PageTurnerState extends State<PageTurner> {
             },
             child: Focus(
               autofocus: true,
-              child: PageView.builder(
-                controller: _pages,
-                // Builds the page on either side as well, so the next one is loaded before it's
-                // turned to.
-                allowImplicitScrolling: true,
-                physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
-                itemCount: widget.count,
-                onPageChanged: (index) => setState(() => _index = index),
-                itemBuilder: (context, index) => InteractiveViewer(
-                  transformationController: _zoom,
-                  minScale: 1,
-                  child: widget.pageBuilder(context, index, _decodeWidth),
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _scrolled,
+                child: PageView.builder(
+                  controller: _pages,
+                  // Builds the page on either side as well, so the next one is loaded before
+                  // it's turned to.
+                  allowImplicitScrolling: true,
+                  physics: _zoomed
+                      ? const NeverScrollableScrollPhysics()
+                      : null,
+                  itemCount: widget.count,
+                  onPageChanged: (index) => setState(() => _index = index),
+                  itemBuilder: (context, index) => InteractiveViewer(
+                    transformationController: _zoom,
+                    minScale: 1,
+                    child: widget.pageBuilder(context, index, _decodeWidth),
+                  ),
                 ),
               ),
             ),
