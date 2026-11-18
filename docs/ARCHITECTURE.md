@@ -6,7 +6,7 @@
 - `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept), `session_controller.dart` (its stages and rules) and `session_http_client.dart` (the session as an `http.Client`, for a package that sends its own requests); and `epub_book.dart`, an EPUB's chapters and files read from its archive.
 - `lib/i18n/catalog.dart` — the catalog, `CatalogScope` and `context.t()`.
 - `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `home_screen.dart`, `series_screen.dart`, `books_screen.dart`), the frame of a screen that shows a list from the server (`list_screen.dart`), a message in the middle of a screen (`notice.dart`), the layout of a one-form screen (`form_page.dart`), the text a failure shows (`error_text.dart`), images from the server (`server_image.dart`) and from inside an EPUB (`epub_image.dart`), the covers made of them (`cover.dart`) and the cards and grid that show them (`cover_grid.dart`), and the design tokens (`theme.dart`).
-- `lib/ui/readers/` — opening a book in the reader for its format (`open_book.dart`) and the readers: `page_reader.dart` for CBZ and image-folder books, `pdf_reader.dart` for PDFs, `epub_reader.dart` for EPUBs.
+- `lib/ui/readers/` — opening a book in the reader for its format (`open_book.dart`) and the readers: `page_reader.dart` for CBZ and image-folder books, `pdf_reader.dart` for PDFs, `epub_reader.dart` for EPUBs; and the page turning a reader shows its pages in (`page_turner.dart`).
 - `assets/translations/en.json` — the built-in English: the server's answer to `GET /api/v1/locales/en/translations`, refreshed with the command in [commands.md](commands.md).
 - Code in `lib/` is imported by package — `package:bookserver/…` — never by a relative path.
 
@@ -37,6 +37,7 @@
 ## UI
 - A list from the server is shown by a `ListScreen`: progress while it loads, the failure with Reload under it, a notice when it's empty, and Reload in the app bar unless the screen turns it off.
 - A book opens through `openBook`, the one place that picks the reader for a format; a format without one says so.
+- A reader that shows one page at a time turns them in a `PageTurner` — swipe, arrow keys, one zoom for every page, "Page X of Y" — and decodes a page's pictures at the width the turner hands it.
 - A PDF is read in byte ranges by pdfrx, never downloaded whole: its pages load progressively and are measured on demand, and pdfrx's block cache (`pdfrx.cache`) is deleted before a PDF opens and after its reader closes.
 - An EPUB is downloaded whole into a fresh temp file, which its reader deletes when it closes.
 - An EPUB's pictures, fonts and styles come only from the book itself; a book never makes the app load anything from anywhere else.
