@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/epub_book.dart';
@@ -79,7 +80,12 @@ class _EpubReaderState extends State<EpubReader> {
       final blocks = [
         for (var chapter = 0; chapter < epub.chapters.length; chapter++)
           for (final (index, html) in epub.chapterBlocks(chapter).indexed)
-            (chapter: chapter, html: html, startsChapter: index == 0),
+            (
+              chapter: chapter,
+              html: html,
+              startsChapter: index == 0,
+              textLength: _textOf(html).length,
+            ),
       ];
       setState(() {
         _epub = epub;
@@ -133,8 +139,14 @@ class _EpubReaderState extends State<EpubReader> {
   }
 }
 
-/// A block of a chapter — a paragraph, a heading, a list — as HTML.
-typedef _Block = ({int chapter, String html, bool startsChapter});
+/// A block of a chapter — a paragraph, a heading, a list — as HTML, and how many characters of
+/// text it holds.
+typedef _Block = ({
+  int chapter,
+  String html,
+  bool startsChapter,
+  int textLength,
+});
 
 /// A book's blocks, chapter after chapter, in a column that keeps lines easy to follow.
 class _Blocks extends StatelessWidget {
@@ -148,46 +160,118 @@ class _Blocks extends StatelessWidget {
     final imageWidth = (Widths.reading * MediaQuery.devicePixelRatioOf(context))
         .round();
     final textStyle = Theme.of(context).textTheme.bodyLarge!;
-    // One item per block, each built in the frame it appears: an item that grows once it's
-    // placed above the screen pushes down the text being read.
-    return ListView.builder(
-      itemCount: blocks.length,
-      itemBuilder: (context, index) {
-        final block = blocks[index];
-        final gapAbove = index == 0
-            ? Spacing.large
-            : block.startsChapter
-            ? Spacing.large * 2
-            // HtmlWidget leaves out the margins at its edges; 1 em is the gap it puts between
-            // two paragraphs.
-            : textStyle.fontSize!;
-        return Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: Widths.reading),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                Spacing.large,
-                gapAbove,
-                Spacing.large,
-                index == blocks.length - 1 ? Spacing.large : 0,
-              ),
-              child: HtmlWidget(
-                block.html,
-                buildAsync: false,
-                baseUrl: Uri(
-                  scheme: _scheme,
-                  path: '/${book.chapters[block.chapter]}',
+    return LayoutBuilder(
+      builder: (context, constraints) => ListView.custom(
+        // One item per block, each built in the frame it appears: an item that grows once it's
+        // placed above the screen pushes down the text being read.
+        childrenDelegate: _BlockDelegate(
+          (context, index) => Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: Widths.reading),
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  Spacing.large,
+                  _gapAbove(index, textStyle),
+                  Spacing.large,
+                  _gapBelow(index),
                 ),
-                factoryBuilder: () => _BookPictures(book, imageWidth),
-                textStyle: textStyle,
+                child: HtmlWidget(
+                  blocks[index].html,
+                  buildAsync: false,
+                  baseUrl: Uri(
+                    scheme: _scheme,
+                    path: '/${book.chapters[blocks[index].chapter]}',
+                  ),
+                  factoryBuilder: () => _BookPictures(book, imageWidth),
+                  textStyle: textStyle,
+                ),
               ),
             ),
           ),
-        );
-      },
+          childCount: blocks.length,
+          heightsAfter: _heightsAfter(
+            context,
+            textStyle,
+            math.min(constraints.maxWidth, Widths.reading) - 2 * Spacing.large,
+          ),
+        ),
+      ),
     );
   }
+
+  double _gapAbove(int index, TextStyle textStyle) => index == 0
+      ? Spacing.large
+      : blocks[index].startsChapter
+      ? Spacing.large * 2
+      // HtmlWidget leaves out the margins at its edges; 1 em is the gap it puts between two
+      // paragraphs.
+      : textStyle.fontSize!;
+
+  double _gapBelow(int index) => index == blocks.length - 1 ? Spacing.large : 0;
+
+  /// For each block, a guess at how tall the blocks after it are: so many lines each, with as
+  /// many characters to a line as the book's own text makes when wrapped to [textWidth] in
+  /// [textStyle] — lines break between words, so none is filled to the end.
+  List<double> _heightsAfter(
+    BuildContext context,
+    TextStyle textStyle,
+    double textWidth,
+  ) {
+    final sample = [for (final block in blocks.take(100)) _textOf(block.html)]
+        .join(' ')
+        .trim();
+    final text = sample.isEmpty
+        ? ' '
+        : sample.substring(0, math.min(sample.length, 2000));
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: textStyle),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: textWidth);
+    final sampleLines = painter.computeLineMetrics().length;
+    final perLine = text.length / sampleLines;
+    final lineHeight = painter.height / sampleLines;
+    painter.dispose();
+
+    final heights = List<double>.filled(blocks.length, 0);
+    var below = 0.0;
+    for (var index = blocks.length - 1; index >= 0; index--) {
+      heights[index] = below;
+      final lines = math.max(1, (blocks[index].textLength / perLine).ceil());
+      below +=
+          _gapAbove(index, textStyle) + lines * lineHeight + _gapBelow(index);
+    }
+    return heights;
+  }
 }
+
+/// Builds a book's blocks, and gives the list the book's length from their text: Flutter's own
+/// guess averages the blocks built so far, which swings between a heading and a long paragraph.
+class _BlockDelegate extends SliverChildBuilderDelegate {
+  _BlockDelegate(
+    super.builder, {
+    required int super.childCount,
+    required this.heightsAfter,
+  });
+
+  /// For each block, how tall the blocks after it are guessed to be.
+  final List<double> heightsAfter;
+
+  @override
+  double estimateMaxScrollOffset(
+    int firstIndex,
+    int lastIndex,
+    double leadingScrollOffset,
+    double trailingScrollOffset,
+  ) => trailingScrollOffset + heightsAfter[lastIndex];
+}
+
+/// A block's text, its tags left out and its white space one space.
+String _textOf(String html) =>
+    html.replaceAll(_tag, '').replaceAll(_whiteSpace, ' ');
+
+final _tag = RegExp('<[^>]*>');
+final _whiteSpace = RegExp(r'\s+');
 
 /// Gives an `<img>` its picture from the book's own archive, and any other picture none.
 class _BookPictures extends WidgetFactory {

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/i18n/catalog.dart';
@@ -76,6 +77,19 @@ void main() {
         '${[for (var paragraph = 1; paragraph <= 60; paragraph++) '<p>Chapter $chapter, paragraph $paragraph: ${'words ' * 30}</p>'].join()}'
         '</section>',
       ),
+  });
+
+  /// A flowing EPUB whose first 30 blocks are a short line each and whose next 30 are long.
+  final unevenBook = epubBytes({
+    'META-INF/container.xml': containerXml(),
+    'OEBPS/content.opf': packageXml({'one': 'one.xhtml'}, ['one']),
+    'OEBPS/one.xhtml': chapterXhtml(
+      [
+        for (var block = 1; block <= 30; block++) '<p>Short $block</p>',
+        for (var block = 1; block <= 30; block++)
+          '<p>Long $block: ${'words ' * 100}</p>',
+      ].join(),
+    ),
   });
 
   http.Response file(List<int> bytes) => http.Response.bytes(
@@ -295,6 +309,40 @@ void main() {
       rectOf(heading).top - rectOf(paragraph('Chapter 1, paragraph 60')).bottom,
       Spacing.large * 2,
     );
+  });
+
+  testWidgets("the book's length stays put while scrolling through it", (
+    tester,
+  ) async {
+    await openReader(
+      tester,
+      fileServer(() async => file(unevenBook)),
+      find.textContaining('Short 1', findRichText: true),
+    );
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable).last)
+        .position;
+
+    final lengths = <double>[];
+    for (var step = 0; step < 500; step++) {
+      lengths.add(position.maxScrollExtent);
+      if (position.pixels >= position.maxScrollExtent) {
+        break;
+      }
+      position.jumpTo(
+        math.min(position.pixels + 300, position.maxScrollExtent),
+      );
+      await tester.pump();
+    }
+
+    final length = lengths.last;
+    for (final (step, guess) in lengths.indexed) {
+      expect(
+        guess,
+        moreOrLessEquals(length, epsilon: length * 0.05),
+        reason: 'the length guessed at step $step of ${lengths.length}',
+      );
+    }
   });
 
   testWidgets('shows a picture from the book, and none from anywhere else', (

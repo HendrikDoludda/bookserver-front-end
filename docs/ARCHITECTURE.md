@@ -40,7 +40,7 @@
 - A reader that shows one page at a time turns them in a `PageTurner` — swipe, arrow keys, one zoom for every page, "Page X of Y" — and decodes a page's pictures at the width the turner hands it.
 - A PDF is read in byte ranges by pdfrx, never downloaded whole: its pages load progressively and are measured on demand, and pdfrx's block cache (`pdfrx.cache`) is deleted before a PDF opens and after its reader closes.
 - An EPUB is downloaded whole into a fresh temp file, which its reader deletes when it closes.
-- A flowing EPUB is a list of its blocks — paragraphs, headings, lists — one item each, built in the frame it appears; never one item per chapter.
+- A flowing EPUB is a list of its blocks — paragraphs, headings, lists — one item each, built in the frame it appears; never one item per chapter. The list's length is guessed from the blocks' text, never left to Flutter's average of the blocks on screen.
 - An EPUB's pictures, fonts and styles come only from the book itself; a book never makes the app load anything from anywhere else.
 - Libraries, series and books are `CoverCard`s in a `CoverGrid`: a cover with its name under it, in as many columns as the width takes, none wider than `Covers.maxTileWidth`.
 - Components read design tokens — `lib/ui/theme.dart` and the theme's colour scheme — never literal colours or sizes.
