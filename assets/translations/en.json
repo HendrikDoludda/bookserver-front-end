@@ -3,9 +3,13 @@
     "name": "Book Server"
   },
   "browse": {
+    "book_count.one": "{count} book",
+    "book_count.other": "{count} books",
     "books_empty": "No books in this series yet.",
     "chapter": "Chapter {number}",
     "reload": "Reload",
+    "series_count.one": "{count} series",
+    "series_count.other": "{count} series",
     "series_empty": "No series in this library yet.",
     "volume": "Volume {number}",
     "volume_chapter": "Volume {volume}, chapter {chapter}"

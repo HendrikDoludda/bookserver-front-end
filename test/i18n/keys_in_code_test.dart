@@ -25,7 +25,9 @@ void main() {
           continue; // Not a catalog namespace, so not a key: 'en.json', '1.5'.
         }
         found++;
-        if (!texts.containsKey(match[2])) {
+        // A plural key is written without its form; `.other` is the one every language has.
+        if (!texts.containsKey(match[2]) &&
+            !texts.containsKey('${match[2]}.other')) {
           missing.add('${file.path}: ${match[1]}.${match[2]}');
         }
       }

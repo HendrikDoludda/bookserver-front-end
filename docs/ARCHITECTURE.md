@@ -4,7 +4,7 @@
 - `lib/main.dart` — start-up: loads the built-in English and the stored connection, then runs the app.
 - `lib/app.dart` — the root: the catalog and the theme above every screen, the screen for the session's stage, and the navigator the other screens are pushed onto.
 - `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept), `session_controller.dart` (its stages and rules) and `session_http_client.dart` (the session as an `http.Client`, for a package that sends its own requests); and `epub_book.dart`, an EPUB's chapters — split into blocks of HTML — and files, read from its archive, and `epub_layout.dart`, a fixed-layout page as data — its size, background and placed lines of text, from its XHTML and the book's CSS.
-- `lib/i18n/catalog.dart` — the catalog, `CatalogScope` and `context.t()`.
+- `lib/i18n/catalog.dart` — the catalog in its language, `CatalogScope`, `context.t()` and `context.plural()`.
 - `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `home_screen.dart`, `series_screen.dart`, `books_screen.dart`), the frame of a screen that shows a list from the server (`list_screen.dart`), a message in the middle of a screen (`notice.dart`), the layout of a one-form screen (`form_page.dart`), the text a failure shows (`error_text.dart`), images from the server (`server_image.dart`) and from inside an EPUB (`epub_image.dart`), the covers made of them (`cover.dart`) and the cards and grid that show them (`cover_grid.dart`), and the design tokens (`theme.dart`).
 - `lib/ui/readers/` — opening a book in the reader for its format (`open_book.dart`) and the readers: `page_reader.dart` for CBZ and image-folder books, `pdf_reader.dart` for PDFs, `epub_reader.dart` for EPUBs, `fixed_layout_page.dart` for a fixed-layout EPUB's pages; and the page turning a reader shows its pages in (`page_turner.dart`).
 - `assets/translations/en.json` — the built-in English: the server's answer to `GET /api/v1/locales/en/translations`, refreshed with the command in [commands.md](commands.md).
@@ -46,6 +46,7 @@
 - Libraries, series and books are `CoverCard`s in a `CoverGrid`: a cover with its name under it, in as many columns as the width takes, none wider than `Covers.maxTileWidth`.
 - Components read design tokens — `lib/ui/theme.dart` and the theme's colour scheme — never literal colours or sizes.
 - Every visible string goes through `context.t("namespace.key")` against the backend's translation catalog; values go into its `{placeholders}` — `context.t('browse.volume', {'number': 3})` — never by joining strings.
+- A text with a count goes through `context.plural('namespace.key', count)`: one key per plural form (`key.one`, `key.other` …), picked by the catalog language's plural rules (`intl`), `.other` when a form is missing; `{count}` is in every form.
 - An image from the server — a cover, a page — loads through `ServerImage`, never `Image.network`: its request goes through `SessionController.authorized`, and the image cache keeps it under the server and the path.
 - Services and controllers throw typed exceptions, never text; a screen shows a failure as the text `errorTextKey` picks.
 - Screens catch `Exception`s only: an `Error` is a bug and stays loud.
@@ -58,7 +59,7 @@
 - Screen tests start the whole app as `main()` does, over the fakes (`pumpApp` in `test/support/screens.dart`), and find texts through the catalog, never as literals.
 - A widget test answers every request it leaves waiting before it ends: `ApiClient`'s timeout timer must not outlive the test.
 - An image test decodes real PNG bytes (`onePixelPng`, `test/support/images.dart`); a widget that loads one is pumped inside `tester.runAsync`, where the decoding can finish.
-- Every catalog key written in `lib/` has a built-in English text; `test/i18n/keys_in_code_test.dart` fails otherwise.
+- Every catalog key written in `lib/` has a built-in English text — a plural key its `.other` form; `test/i18n/keys_in_code_test.dart` fails otherwise.
 - A test taps a card through `cardNamed`: the card's ink layer lies over its name, which never gets the tap itself.
 - While a list or a page is still loading, `pumpAndSettle` never returns, since the loading bar or spinner keeps moving; `finishTransition` lets a pushed screen arrive instead.
 - A reader test opens its book with `openBook` on the home screen's context, as a tap on the book's card does.

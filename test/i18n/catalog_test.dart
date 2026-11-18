@@ -8,7 +8,7 @@ void main() {
   final catalog = Catalog.fromJson({
     'login': {'title': 'Sign in'},
     'library': {'unread.one': 'One unread', 'unread.other': 'Several unread'},
-  });
+  }, language: 'en');
 
   group('text', () {
     test('finds a text by namespace and name', () {
@@ -43,7 +43,7 @@ void main() {
         'both': '{count} pages, {count} in all',
         'odd': 'Keep {page} and {Page} and {page-1}',
       },
-    });
+    }, language: 'en');
 
     test('fills each placeholder from its value', () {
       expect(
@@ -83,6 +83,108 @@ void main() {
     });
   });
 
+  group('plural', () {
+    /// A catalog in [language] whose `browse.book_count` has [forms].
+    Catalog books(String language, Map<String, String> forms) =>
+        Catalog.fromJson({
+          'browse': {
+            for (final MapEntry(key: form, value: text) in forms.entries)
+              'book_count.$form': text,
+          },
+        }, language: language);
+
+    List<String> counted(Catalog catalog, List<int> counts) => [
+      for (final count in counts) catalog.plural('browse.book_count', count),
+    ];
+
+    test('English and German: one for 1, other for every other count', () {
+      for (final language in ['en', 'de']) {
+        final catalog = books(language, {
+          'one': '{count} book',
+          'other': '{count} books',
+        });
+        expect(counted(catalog, [0, 1, 2, 21]), [
+          '0 books',
+          '1 book',
+          '2 books',
+          '21 books',
+        ], reason: language);
+      }
+    });
+
+    test("follows the catalog's language, not English", () {
+      final polish = books('pl', {
+        'one': '{count} książka',
+        'few': '{count} książki',
+        'many': '{count} książek',
+        'other': '{count} książki',
+      });
+      expect(counted(polish, [1, 2, 5, 12, 22, 25]), [
+        '1 książka',
+        '2 książki',
+        '5 książek',
+        '12 książek',
+        '22 książki',
+        '25 książek',
+      ]);
+
+      final french = books('fr', {
+        'one': '{count} livre',
+        'other': '{count} livres',
+      });
+      expect(counted(french, [0, 1, 2]), [
+        '0 livre',
+        '1 livre',
+        '2 livres',
+      ], reason: 'French uses its one form for 0 too');
+    });
+
+    test('a form the catalog lacks falls back to other', () {
+      final polish = books('pl', {
+        'one': '{count} książka',
+        'other': '{count} książki',
+      });
+      expect(counted(polish, [1, 5]), ['1 książka', '5 książki']);
+    });
+
+    test('a language intl has no rules for takes other for every count', () {
+      final unknown = books('qab', {
+        'one': '{count} book',
+        'other': '{count} books',
+      });
+      expect(counted(unknown, [1, 2]), ['1 books', '2 books']);
+    });
+
+    test('answers the key itself when the catalog lacks it', () {
+      final english = books('en', {'one': '{count} book'});
+      expect(english.plural('browse.nope', 2), 'browse.nope');
+      expect(
+        english.plural('browse.book_count', 2),
+        'browse.book_count',
+        reason: 'neither the form nor other is there',
+      );
+    });
+
+    test('fills the other placeholders beside the count', () {
+      final english = Catalog.fromJson({
+        'browse': {
+          'in_series.one': '{count} book in {series}',
+          'in_series.other': '{count} books in {series}',
+        },
+      }, language: 'en');
+
+      expect(
+        english.plural('browse.in_series', 3, {'series': 'Alpha'}),
+        '3 books in Alpha',
+      );
+      expect(
+        english.plural('browse.in_series', 1, {'series': 'Alpha', 'count': 9}),
+        '1 book in Alpha',
+        reason: 'the count given as such wins',
+      );
+    });
+  });
+
   group('fromJson', () {
     test('refuses anything but an object of namespaces of texts', () {
       final shapes = <Object?>[
@@ -104,7 +206,7 @@ void main() {
       ];
       for (final json in shapes) {
         expect(
-          () => Catalog.fromJson(json),
+          () => Catalog.fromJson(json, language: 'en'),
           throwsFormatException,
           reason: '$json',
         );
@@ -113,7 +215,10 @@ void main() {
 
     test('takes an empty catalog, which answers every key with itself', () {
       expect(
-        Catalog.fromJson(<String, Object?>{}).text('login.title'),
+        Catalog.fromJson(
+          <String, Object?>{},
+          language: 'en',
+        ).text('login.title'),
         'login.title',
       );
     });
@@ -124,6 +229,7 @@ void main() {
     for (final key in ['app.name', 'login.title', 'errors.unauthorized']) {
       expect(english.has(key), isTrue, reason: key);
     }
+    expect(english.language, 'en');
   });
 
   group('context.t', () {
@@ -135,7 +241,7 @@ void main() {
     testWidgets('fills the placeholders from the values', (tester) async {
       final volumes = Catalog.fromJson({
         'browse': {'volume': 'Volume {number}'},
-      });
+      }, language: 'en');
       await tester.pumpWidget(
         _scoped(
           volumes,
@@ -148,13 +254,37 @@ void main() {
       expect(find.text('Volume 3'), findsOneWidget);
     });
 
+    testWidgets("context.plural picks the scope's form", (tester) async {
+      final books = Catalog.fromJson({
+        'browse': {
+          'book_count.one': '{count} book',
+          'book_count.other': '{count} books',
+        },
+      }, language: 'en');
+      await tester.pumpWidget(
+        _scoped(
+          books,
+          Builder(
+            builder: (context) => Column(
+              children: [
+                Text(context.plural('browse.book_count', 1)),
+                Text(context.plural('browse.book_count', 4)),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(find.text('1 book'), findsOneWidget);
+      expect(find.text('4 books'), findsOneWidget);
+    });
+
     testWidgets('a new catalog rebuilds even a const widget below it', (
       tester,
     ) async {
       await tester.pumpWidget(_scoped(catalog, const _Shows('login.title')));
       final german = Catalog.fromJson({
         'login': {'title': 'Anmelden'},
-      });
+      }, language: 'de');
 
       await tester.pumpWidget(_scoped(german, const _Shows('login.title')));
 
