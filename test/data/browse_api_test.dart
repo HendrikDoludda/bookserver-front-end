@@ -49,6 +49,7 @@ void main() {
           'library_type': 'Books',
           'cover_image': null,
           'description': null,
+          'series_count': 12,
         },
         {
           'id': 2,
@@ -56,6 +57,7 @@ void main() {
           'library_type': 'Comics',
           'cover_image': null,
           'description': null,
+          'series_count': 0,
         },
       ]),
     );
@@ -63,8 +65,11 @@ void main() {
     final libraries = await apiFor(server).libraries('session-1');
 
     expect(
-      [for (final library in libraries) (library.id, library.name)],
-      [(1, '/books'), (2, '/manga')],
+      [
+        for (final library in libraries)
+          (library.id, library.name, library.seriesCount),
+      ],
+      [(1, '/books', 12), (2, '/manga', 0)],
     );
     expectGet(server, '/api/v1/libraries');
   });
@@ -79,13 +84,17 @@ void main() {
           'cover_image': null,
           'start_release_year': null,
           'end_release_year': null,
+          'book_count': 7,
         },
       ]),
     );
 
     final series = await apiFor(server).seriesOf(3, 'session-1');
 
-    expect([for (final one in series) (one.id, one.name)], [(4, 'alpha')]);
+    expect(
+      [for (final one in series) (one.id, one.name, one.bookCount)],
+      [(4, 'alpha', 7)],
+    );
     expectGet(server, '/api/v1/libraries/3/series');
   });
 
@@ -169,12 +178,16 @@ void main() {
     };
     final wrong = <String, List<Object?>>{
       'libraries': [
-        {'id': '1', 'name': '/books'},
-        {'id': 1},
+        {'id': '1', 'name': '/books', 'series_count': 1},
+        {'id': 1, 'series_count': 1},
+        {'id': 1, 'name': '/books'},
+        {'id': 1, 'name': '/books', 'series_count': '1'},
       ],
       'series': [
-        {'id': 1, 'name': null},
-        {'name': 'alpha'},
+        {'id': 1, 'name': null, 'book_count': 1},
+        {'name': 'alpha', 'book_count': 1},
+        {'id': 1, 'name': 'alpha'},
+        {'id': 1, 'name': 'alpha', 'book_count': null},
       ],
       'books': [
         {...bookJson(), 'volume_number': '1'},

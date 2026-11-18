@@ -1,17 +1,27 @@
 import 'package:bookserver/data/api_client.dart';
 
 class Library {
-  const Library({required this.id, required this.name});
+  const Library({
+    required this.id,
+    required this.name,
+    required this.seriesCount,
+  });
 
   final int id;
   final String name;
+
+  /// How many series the library holds.
+  final int seriesCount;
 }
 
 class Series {
-  const Series({required this.id, required this.name});
+  const Series({required this.id, required this.name, required this.bookCount});
 
   final int id;
   final String name;
+
+  /// How many books the series holds.
+  final int bookCount;
 }
 
 /// What kind of file a book is, which decides the reader that opens it.
@@ -74,7 +84,11 @@ class BrowseApi {
     '/api/v1/libraries',
     sessionToken,
     (entry) => switch (entry) {
-      {'id': int id, 'name': String name} => Library(id: id, name: name),
+      {'id': int id, 'name': String name, 'series_count': int count} => Library(
+        id: id,
+        name: name,
+        seriesCount: count,
+      ),
       _ => throw const FormatException('Not a library.'),
     },
   );
@@ -83,7 +97,11 @@ class BrowseApi {
     '/api/v1/libraries/$libraryId/series',
     sessionToken,
     (entry) => switch (entry) {
-      {'id': int id, 'name': String name} => Series(id: id, name: name),
+      {'id': int id, 'name': String name, 'book_count': int count} => Series(
+        id: id,
+        name: name,
+        bookCount: count,
+      ),
       _ => throw const FormatException('Not a series.'),
     },
   );

@@ -1,5 +1,6 @@
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/session_controller.dart';
+import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/books_screen.dart';
 import 'package:bookserver/ui/cover.dart';
 import 'package:bookserver/ui/cover_grid.dart';
@@ -25,11 +26,13 @@ class SeriesScreen extends StatelessWidget {
       ),
       builder: (context, series) => CoverGrid(
         itemCount: series.length,
+        withDetail: true,
         itemBuilder: (context, index) {
           final one = series[index];
           return CoverCard(
             cover: Cover(session: session, kind: CoverKind.series, id: one.id),
             name: one.name,
+            detail: context.plural('browse.book_count', one.bookCount),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => BooksScreen(session: session, series: one),

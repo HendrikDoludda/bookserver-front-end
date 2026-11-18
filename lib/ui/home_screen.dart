@@ -31,6 +31,7 @@ class HomeScreen extends StatelessWidget {
       ],
       builder: (context, libraries) => CoverGrid(
         itemCount: libraries.length,
+        withDetail: true,
         itemBuilder: (context, index) {
           final library = libraries[index];
           return CoverCard(
@@ -40,6 +41,7 @@ class HomeScreen extends StatelessWidget {
               id: library.id,
             ),
             name: library.name,
+            detail: context.plural('browse.series_count', library.seriesCount),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) =>

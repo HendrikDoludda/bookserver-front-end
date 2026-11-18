@@ -20,8 +20,13 @@ void main() {
   // Every test asks the same server for the same covers: none may come from a test before.
   setUp(() => PaintingBinding.instance.imageCache.clear());
 
-  http.Response libraries(List<String> names) => jsonAnswer([
-    for (final (index, name) in names.indexed) {'id': index + 1, 'name': name},
+  /// Libraries numbered from 1, each with one series unless [seriesCounts] names its number.
+  http.Response libraries(
+    List<String> names, {
+    Map<String, int> seriesCounts = const {},
+  }) => jsonAnswer([
+    for (final (index, name) in names.indexed)
+      {'id': index + 1, 'name': name, 'series_count': seriesCounts[name] ?? 1},
   ]);
 
   VoidCallback? reloadAction(WidgetTester tester) => tester
@@ -55,6 +60,33 @@ void main() {
     final request = server.requests.first;
     expect(request.method, 'GET');
     expect(request.headers['authorization'], 'Bearer session-1');
+  });
+
+  testWidgets('shows how many series each library holds under its name', (
+    tester,
+  ) async {
+    final counts = {'Manga': 1, 'Comics': 0, 'Novels': 3};
+    final server = bookServer(
+      (request) async => switch (request.url.path) {
+        '/api/v1/libraries' => libraries([
+          ...counts.keys,
+        ], seriesCounts: counts),
+        _ => notFound(),
+      },
+    );
+    await start(tester, server);
+    await tester.pumpAndSettle();
+
+    for (final MapEntry(key: name, value: count) in counts.entries) {
+      expect(
+        find.descendant(
+          of: cardNamed(name),
+          matching: find.text(english.plural('browse.series_count', count)),
+        ),
+        findsOneWidget,
+        reason: name,
+      );
+    }
   });
 
   testWidgets("shows each library's cover, loaded with the session", (

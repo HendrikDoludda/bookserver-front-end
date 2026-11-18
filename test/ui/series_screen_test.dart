@@ -20,8 +20,12 @@ void main() {
   // Every test asks the same server for the same covers: none may come from a test before.
   setUp(() => PaintingBinding.instance.imageCache.clear());
 
-  /// Series exactly as `GET /api/v1/libraries/{id}/series` sends them.
-  http.Response series(Map<int, String> names) => jsonAnswer([
+  /// Series exactly as `GET /api/v1/libraries/{id}/series` sends them, each with one book unless
+  /// [bookCounts] names its number.
+  http.Response series(
+    Map<int, String> names, {
+    Map<int, int> bookCounts = const {},
+  }) => jsonAnswer([
     for (final MapEntry(key: id, value: name) in names.entries)
       {
         'id': id,
@@ -30,6 +34,7 @@ void main() {
         'cover_image': null,
         'start_release_year': null,
         'end_release_year': null,
+        'book_count': bookCounts[id] ?? 1,
       },
   ]);
 
@@ -39,7 +44,7 @@ void main() {
     (request) => switch (request.url.path) {
       '/api/v1/libraries' => Future.value(
         jsonAnswer([
-          {'id': 3, 'name': 'Manga'},
+          {'id': 3, 'name': 'Manga', 'series_count': 1},
         ]),
       ),
       '/api/v1/libraries/3/series' => answer(),
@@ -93,6 +98,30 @@ void main() {
       requestedCovers(server),
       containsAll(['/api/v1/covers/series/4', '/api/v1/covers/series/5']),
     );
+  });
+
+  testWidgets('shows how many books each series holds under its name', (
+    tester,
+  ) async {
+    final server = mangaServer(
+      () async => series(
+        {4: 'alpha', 5: 'beta', 6: 'gamma'},
+        bookCounts: {4: 1, 5: 0, 6: 3},
+      ),
+    );
+    await openManga(tester, server);
+    await tester.pumpAndSettle();
+
+    for (final (name, count) in [('alpha', 1), ('beta', 0), ('gamma', 3)]) {
+      expect(
+        find.descendant(
+          of: cardNamed(name),
+          matching: find.text(english.plural('browse.book_count', count)),
+        ),
+        findsOneWidget,
+        reason: name,
+      );
+    }
   });
 
   testWidgets('says so when the library has no series', (tester) async {
@@ -177,7 +206,7 @@ void main() {
     final server = bookServer(
       (request) async => switch (request.url.path) {
         '/api/v1/libraries' => jsonAnswer([
-          {'id': 3, 'name': 'Manga'},
+          {'id': 3, 'name': 'Manga', 'series_count': 1},
         ]),
         '/api/v1/libraries/3/series' => series({4: 'alpha', 5: 'beta'}),
         '/api/v1/series/5/books' => jsonAnswer([]),

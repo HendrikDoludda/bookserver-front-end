@@ -77,10 +77,10 @@ void main() {
       final server = bookServer(
         (request) async => switch (request.url.path) {
           '/api/v1/libraries' => jsonAnswer([
-            {'id': 3, 'name': 'Manga'},
+            {'id': 3, 'name': 'Manga', 'series_count': 1},
           ]),
           '/api/v1/libraries/3/series' => jsonAnswer([
-            {'id': 4, 'name': 'alpha'},
+            {'id': 4, 'name': 'alpha', 'book_count': 1},
           ]),
           '/api/v1/series/4/books' =>
             ++bookLists == 1 ? jsonAnswer([]) : refused,

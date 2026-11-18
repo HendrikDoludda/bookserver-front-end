@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/books_screen.dart';
+import 'package:bookserver/ui/cover_grid.dart';
 import 'package:bookserver/ui/readers/page_reader.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -50,12 +51,12 @@ void main() {
     (request) => switch (request.url.path) {
       '/api/v1/libraries' => Future.value(
         jsonAnswer([
-          {'id': 3, 'name': 'Manga'},
+          {'id': 3, 'name': 'Manga', 'series_count': 1},
         ]),
       ),
       '/api/v1/libraries/3/series' => Future.value(
         jsonAnswer([
-          {'id': 4, 'name': 'alpha'},
+          {'id': 4, 'name': 'alpha', 'book_count': 1},
         ]),
       ),
       '/api/v1/series/4/books' => answer(),
@@ -132,6 +133,25 @@ void main() {
     expect(
       requestedCovers(server),
       containsAll(['/api/v1/covers/book/7', '/api/v1/covers/book/8']),
+    );
+  });
+
+  testWidgets("a book's card has nothing under its name", (tester) async {
+    final server = alphaServer(
+      () async => jsonAnswer([bookJson(7, volume: 1)]),
+    );
+    await openAlpha(tester, server);
+    await tester.pumpAndSettle();
+
+    Finder onBooksScreen(Type type) => find.descendant(
+      of: find.byType(BooksScreen),
+      matching: find.byType(type),
+    );
+    expect(tester.widget<CoverCard>(onBooksScreen(CoverCard)).detail, isNull);
+    expect(
+      tester.widget<CoverGrid>(onBooksScreen(CoverGrid)).withDetail,
+      isFalse,
+      reason: 'no room kept for a line that never shows',
     );
   });
 

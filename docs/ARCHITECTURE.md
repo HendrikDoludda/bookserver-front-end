@@ -43,7 +43,7 @@
 - A fixed-layout EPUB is read page by page in a `PageTurner`: each page drawn at the size the book gives it and scaled to fit, parsed only while the pages hold still (`PageTurnerState.moving`), its fonts loaded once per app run under `book<id>-<family>`.
 - A flowing EPUB is a list of its blocks — paragraphs, headings, lists — one item each, built in the frame it appears; never one item per chapter. The list's length is guessed from the blocks' text, never left to Flutter's average of the blocks on screen.
 - An EPUB's pictures, fonts and styles come only from the book itself; a book never makes the app load anything from anywhere else.
-- Libraries, series and books are `CoverCard`s in a `CoverGrid`: a cover with its name under it, in as many columns as the width takes, none wider than `Covers.maxTileWidth`.
+- Libraries, series and books are `CoverCard`s in a `CoverGrid`: a cover with its name under it, in as many columns as the width takes, none wider than `Covers.maxTileWidth`. Libraries and series show their count in a `detail` line under the name; a grid whose cards have one is built `withDetail`, which gives every card room for that line.
 - Components read design tokens — `lib/ui/theme.dart` and the theme's colour scheme — never literal colours or sizes.
 - Every visible string goes through `context.t("namespace.key")` against the backend's translation catalog; values go into its `{placeholders}` — `context.t('browse.volume', {'number': 3})` — never by joining strings.
 - A text with a count goes through `context.plural('namespace.key', count)`: one key per plural form (`key.one`, `key.other` …), picked by the catalog language's plural rules (`intl`), `.other` when a form is missing; `{count}` is in every form.
