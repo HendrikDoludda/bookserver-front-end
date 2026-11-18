@@ -1,6 +1,7 @@
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/ui/readers/epub_reader.dart';
 import 'package:bookserver/ui/readers/page_reader.dart';
 import 'package:bookserver/ui/readers/pdf_reader.dart';
 import 'package:material_ui/material_ui.dart';
@@ -13,7 +14,9 @@ void openBook(BuildContext context, SessionController session, Book book) {
       reader = PageReader(session: session, book: book);
     case BookFormat.pdf:
       reader = PdfReader(session: session, book: book);
-    case BookFormat.epub || BookFormat.unsupported:
+    case BookFormat.epub:
+      reader = EpubReader(session: session, book: book);
+    case BookFormat.unsupported:
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(

@@ -3,10 +3,10 @@
 ## Where things live
 - `lib/main.dart` — start-up: loads the built-in English and the stored connection, then runs the app.
 - `lib/app.dart` — the root: the catalog and the theme above every screen, the screen for the session's stage, and the navigator the other screens are pushed onto.
-- `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept), `session_controller.dart` (its stages and rules) and `session_http_client.dart` (the session as an `http.Client`, for a package that sends its own requests).
+- `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept), `session_controller.dart` (its stages and rules) and `session_http_client.dart` (the session as an `http.Client`, for a package that sends its own requests); and `epub_book.dart`, an EPUB's chapters and files read from its archive.
 - `lib/i18n/catalog.dart` — the catalog, `CatalogScope` and `context.t()`.
-- `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `home_screen.dart`, `series_screen.dart`, `books_screen.dart`), the frame of a screen that shows a list from the server (`list_screen.dart`), a message in the middle of a screen (`notice.dart`), the layout of a one-form screen (`form_page.dart`), the text a failure shows (`error_text.dart`), images from the server (`server_image.dart`), the covers made of them (`cover.dart`) and the cards and grid that show them (`cover_grid.dart`), and the design tokens (`theme.dart`).
-- `lib/ui/readers/` — opening a book in the reader for its format (`open_book.dart`) and the readers: `page_reader.dart` for CBZ and image-folder books, `pdf_reader.dart` for PDFs.
+- `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `home_screen.dart`, `series_screen.dart`, `books_screen.dart`), the frame of a screen that shows a list from the server (`list_screen.dart`), a message in the middle of a screen (`notice.dart`), the layout of a one-form screen (`form_page.dart`), the text a failure shows (`error_text.dart`), images from the server (`server_image.dart`) and from inside an EPUB (`epub_image.dart`), the covers made of them (`cover.dart`) and the cards and grid that show them (`cover_grid.dart`), and the design tokens (`theme.dart`).
+- `lib/ui/readers/` — opening a book in the reader for its format (`open_book.dart`) and the readers: `page_reader.dart` for CBZ and image-folder books, `pdf_reader.dart` for PDFs, `epub_reader.dart` for EPUBs.
 - `assets/translations/en.json` — the built-in English: the server's answer to `GET /api/v1/locales/en/translations`, refreshed with the command in [commands.md](commands.md).
 - Code in `lib/` is imported by package — `package:bookserver/…` — never by a relative path.
 
@@ -38,6 +38,8 @@
 - A list from the server is shown by a `ListScreen`: progress while it loads, the failure with Reload under it, a notice when it's empty, and Reload in the app bar unless the screen turns it off.
 - A book opens through `openBook`, the one place that picks the reader for a format; a format without one says so.
 - A PDF is read in byte ranges by pdfrx, never downloaded whole: its pages load progressively and are measured on demand, and pdfrx's block cache (`pdfrx.cache`) is deleted before a PDF opens and after its reader closes.
+- An EPUB is downloaded whole into a fresh temp file, which its reader deletes when it closes.
+- An EPUB's pictures, fonts and styles come only from the book itself; a book never makes the app load anything from anywhere else.
 - Libraries, series and books are `CoverCard`s in a `CoverGrid`: a cover with its name under it, in as many columns as the width takes, none wider than `Covers.maxTileWidth`.
 - Components read design tokens — `lib/ui/theme.dart` and the theme's colour scheme — never literal colours or sizes.
 - Every visible string goes through `context.t("namespace.key")` against the backend's translation catalog; values go into its `{placeholders}` — `context.t('browse.volume', {'number': 3})` — never by joining strings.
@@ -58,3 +60,5 @@
 - While a list or a page is still loading, `pumpAndSettle` never returns, since the loading bar or spinner keeps moving; `finishTransition` lets a pushed screen arrive instead.
 - A reader test opens its book with `openBook` on the home screen's context, as a tap on the book's card does.
 - `flutter test` has no PDFium: a test that opens a PDF sets a `FakePdfEngine` (`test/support/fake_pdf_engine.dart`) as `PdfrxEntryFunctions.instance` and points `Pdfrx.cacheDirectoryPath` at a temp folder; the viewer's settings are tested through `pdfViewerParams`, its rendering by hand.
+- `flutter test` has no platform folders: a test that needs one sets a `FakePathProvider` (`test/support/fake_path_provider.dart`) as `PathProviderPlatform.instance`.
+- File work — writing a download, reading an archive, decoding a picture — finishes only inside `tester.runAsync`; a test that waits for it pumps there until its text shows (`runUntil` in the EPUB reader's tests). Test EPUBs are built in the test (`test/support/epubs.dart`).

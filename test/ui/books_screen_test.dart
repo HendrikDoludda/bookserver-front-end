@@ -215,7 +215,7 @@ void main() {
       alphaServer(
         () async => jsonAnswer([
           bookJson(7, volume: 1),
-          bookJson(8, volume: 2, format: 'epub'),
+          bookJson(8, volume: 2, format: 'mobi'),
         ]),
       ),
     );

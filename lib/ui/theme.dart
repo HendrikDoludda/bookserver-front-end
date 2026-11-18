@@ -10,6 +10,9 @@ abstract final class Spacing {
 /// The widest a block of content gets, so it stays readable on a wide window.
 abstract final class Widths {
   static const double form = 400;
+
+  /// The widest a column of running text gets, so its lines stay easy to follow.
+  static const double reading = 720;
 }
 
 /// The book, series and library covers of the browse grids.

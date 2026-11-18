@@ -139,20 +139,13 @@ PdfViewerParams pdfViewerParams({
   required PdfPageChangedCallback onPageChanged,
 }) => PdfViewerParams(
   backgroundColor: background,
-  // Renders, and so downloads, pages half a window height ahead. Tuned by hand in a profile build
-  // at full screen, where each page rendered ahead is another large image for the GPU.
-  verticalCacheExtent: 0.5,
-  // pdfrx draws the shadow as a page-sized blur on every frame, more than the GPU kept up with at
-  // full screen.
-  pageDropShadow: null,
-  // pdfrx's default, kept explicit: rendering whole pages up to 4000 pixels didn't scroll more
-  // smoothly.
-  onePassRenderingSizeThreshold: 2000,
+  // Renders, and so downloads, pages two window heights above and below the screen: three scrolled
+  // smoothly on an M2 at full screen, and two pre-renders two window heights less.
+  verticalCacheExtent: 2,
   behaviorControlParams: const PdfViewerBehaviorControlParams(
     // Measures a page once it is about to show, not every page at open, which in a scan would
     // fetch most of the file.
     loadPageDimensionsOnDemand: true,
-    // A page shown larger than 2000 pixels also gets a full-resolution image of what is on screen.
     // Waiting until scrolling has paused for 300 ms keeps that render and its GPU upload off every
     // scroll step.
     partialImageLoadingDelay: Duration(milliseconds: 300),
