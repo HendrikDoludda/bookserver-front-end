@@ -65,6 +65,23 @@ final class LoginTotpRequired extends LoginResult {
   final DateTime challengeExpiresAt;
 }
 
+/// What a sign-up leads to.
+sealed class SignUpResult {
+  const SignUpResult();
+}
+
+/// The account is ready and signed in: the server sends no mail, or it is the first account.
+final class SignedUp extends SignUpResult {
+  const SignedUp(this.tokens);
+
+  final SessionTokens tokens;
+}
+
+/// The account waits for the code the server mailed.
+final class VerificationRequired extends SignUpResult {
+  const VerificationRequired();
+}
+
 /// The server's health check and its `/api/v1/auth/…` session routes.
 class AuthApi {
   AuthApi(this._client);
@@ -100,19 +117,73 @@ class AuthApi {
         'device_id': ?deviceId,
       },
     );
+    return _loginResult(json);
+  }
+
+  /// Creates an account. [setupCode] is needed only for the server's first account, and
+  /// [locale] becomes the account's language setting.
+  Future<SignUpResult> signUp({
+    required String email,
+    required String username,
+    required String password,
+    required String passwordRepeat,
+    required String deviceName,
+    required String platform,
+    String? deviceId,
+    String? setupCode,
+    String? locale,
+  }) async {
+    final json = await _client.postJson(
+      '/api/v1/auth/register',
+      body: {
+        'email': email,
+        'username': username,
+        'password': password,
+        'password_repeat': passwordRepeat,
+        'device_name': deviceName,
+        'platform': platform,
+        'device_id': ?deviceId,
+        'setup_code': ?setupCode,
+        'locale': ?locale,
+      },
+    );
     return switch (json) {
-      {'status': 'ok'} => LoginOk(SessionTokens.fromJson(json)),
-      {
-        'status': 'totp_required',
-        'challenge_token': String challengeToken,
-        'challenge_expires_at': int challengeExpiresAt,
-      } =>
-        LoginTotpRequired(
-          challengeToken: challengeToken,
-          challengeExpiresAt: _fromUnixSeconds(challengeExpiresAt),
-        ),
-      _ => throw const FormatException('Not a login answer.'),
+      {'status': 'ok'} => SignedUp(SessionTokens.fromJson(json)),
+      {'verification_required': true} => const VerificationRequired(),
+      _ => throw const FormatException('Not a sign-up answer.'),
     };
+  }
+
+  /// Confirms the account's email address with the mailed [code], and signs in like [logIn].
+  Future<LoginResult> verifyEmail({
+    required String usernameOrEmail,
+    required String password,
+    required String code,
+    required String deviceName,
+    required String platform,
+    String? deviceId,
+  }) async {
+    final json = await _client.postJson(
+      '/api/v1/auth/verify_email',
+      body: {
+        'username_or_email': usernameOrEmail,
+        'password': password,
+        'code': code,
+        'device_name': deviceName,
+        'platform': platform,
+        'device_id': ?deviceId,
+      },
+    );
+    return _loginResult(json);
+  }
+
+  /// Asks for a new code for an account that waits for its email confirmation. The answer is
+  /// the same whether or not such an account exists.
+  Future<void> resendVerification(String usernameOrEmail) async {
+    await _client.postJson(
+      '/api/v1/auth/verify_email/resend',
+      body: {'username_or_email': usernameOrEmail},
+    );
   }
 
   /// Finishes a login that answered [LoginTotpRequired], with a code from the authenticator app
@@ -149,6 +220,21 @@ class AuthApi {
     await _client.postJson('/api/v1/auth/logout', bearer: token);
   }
 }
+
+/// Login's answer, which the email verification gives as well.
+LoginResult _loginResult(Object? json) => switch (json) {
+  {'status': 'ok'} => LoginOk(SessionTokens.fromJson(json)),
+  {
+    'status': 'totp_required',
+    'challenge_token': String challengeToken,
+    'challenge_expires_at': int challengeExpiresAt,
+  } =>
+    LoginTotpRequired(
+      challengeToken: challengeToken,
+      challengeExpiresAt: _fromUnixSeconds(challengeExpiresAt),
+    ),
+  _ => throw const FormatException('Not a login answer.'),
+};
 
 DateTime _fromUnixSeconds(int seconds) =>
     DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);

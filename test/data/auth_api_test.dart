@@ -240,6 +240,147 @@ void main() {
     });
   });
 
+  group('signUp', () {
+    Future<SignUpResult> signUpAlice(
+      AuthApi api, {
+      String? setupCode,
+      String? locale,
+    }) => api.signUp(
+      email: 'alice@example.com',
+      username: 'alice',
+      password: 'correct horse battery',
+      passwordRepeat: 'correct horse battery',
+      deviceName: 'macOS',
+      platform: 'macos',
+      setupCode: setupCode,
+      locale: locale,
+    );
+
+    test('sends the account, leaving out what it lacks', () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer({'verification_required': true}, 202),
+      );
+
+      await signUpAlice(apiFor(server));
+
+      final request = server.requests.single;
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/v1/auth/register');
+      expect(request.headers.containsKey('authorization'), isFalse);
+      expect(jsonDecode(request.body), {
+        'email': 'alice@example.com',
+        'username': 'alice',
+        'password': 'correct horse battery',
+        'password_repeat': 'correct horse battery',
+        'device_name': 'macOS',
+        'platform': 'macos',
+      });
+    });
+
+    test('sends the setup code and the language when given', () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer({'verification_required': true}, 202),
+      );
+
+      await signUpAlice(apiFor(server), setupCode: 'ABCD2345', locale: 'de');
+
+      final body = jsonDecode(server.requests.single.body);
+      expect(body['setup_code'], 'ABCD2345');
+      expect(body['locale'], 'de');
+    });
+
+    test('an account ready at once comes with its session', () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer({'status': 'ok', ...sessionJson}),
+      );
+
+      final result = await signUpAlice(apiFor(server));
+
+      expect(
+        result,
+        isA<SignedUp>().having(
+          (r) => r.tokens.sessionToken,
+          'session',
+          'session-1',
+        ),
+      );
+    });
+
+    test('an account that waits for its code says so', () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer({'verification_required': true}, 202),
+      );
+
+      expect(await signUpAlice(apiFor(server)), isA<VerificationRequired>());
+    });
+
+    test('refuses an answer of another shape', () async {
+      for (final answer in <Object?>[
+        {'verification_required': false},
+        {'status': 'totp_required'},
+        [],
+      ]) {
+        final server = FakeServer((_) async => jsonAnswer(answer));
+        await expectLater(
+          signUpAlice(apiFor(server)),
+          throwsFormatException,
+          reason: '$answer',
+        );
+      }
+    });
+
+    test('passes a refusal on as an ApiException', () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer({'error': 'invalid_setup_code'}, 403),
+      );
+      await expectLater(
+        signUpAlice(apiFor(server)),
+        throwsA(
+          isA<ApiException>().having((e) => e.key, 'key', 'invalid_setup_code'),
+        ),
+      );
+    });
+  });
+
+  group('verifyEmail', () {
+    test('sends the login with the code and answers like login', () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer({'status': 'ok', ...sessionJson}),
+      );
+
+      final result = await apiFor(server).verifyEmail(
+        usernameOrEmail: 'alice@example.com',
+        password: 'correct horse battery',
+        code: 'ABCD2345',
+        deviceName: 'macOS',
+        platform: 'macos',
+        deviceId: 'device-1',
+      );
+
+      final request = server.requests.single;
+      expect(request.url.path, '/api/v1/auth/verify_email');
+      expect(jsonDecode(request.body), {
+        'username_or_email': 'alice@example.com',
+        'password': 'correct horse battery',
+        'code': 'ABCD2345',
+        'device_name': 'macOS',
+        'platform': 'macos',
+        'device_id': 'device-1',
+      });
+      expect(result, isA<LoginOk>());
+    });
+  });
+
+  test('resendVerification sends the name and takes the 202', () async {
+    final server = FakeServer((_) async => http.Response('', 202));
+
+    await apiFor(server).resendVerification('alice');
+
+    final request = server.requests.single;
+    expect(request.url.path, '/api/v1/auth/verify_email/resend');
+    expect(jsonDecode(request.body), {'username_or_email': 'alice'});
+  });
+
   group('refresh', () {
     test('sends the refresh token and reads the new tokens', () async {
       final server = FakeServer((_) async => jsonAnswer(sessionJson));

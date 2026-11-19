@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:bookserver/data/session.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/login_code_screen.dart';
 import 'package:bookserver/ui/login_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,7 @@ import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
 
 import '../support/fake_server.dart';
+import '../support/memory_catalog_store.dart';
 import '../support/memory_session_store.dart';
 import '../support/screens.dart';
 
@@ -146,7 +148,7 @@ void main() {
     final cases = {
       (401, 'incorrect_credentials'): 'errors.incorrect_credentials',
       (429, 'too_many_attempts'): 'errors.too_many_attempts',
-      (403, 'email_not_verified'): 'errors.email_not_verified',
+      (403, 'forbidden'): 'errors.forbidden',
       (400, 'a_key_this_app_does_not_know'): 'connection.unexpected_answer',
     };
     for (final MapEntry(key: (status, serverKey), value: textKey)
@@ -207,11 +209,12 @@ void main() {
   testWidgets('shows why the last session ended until the next try', (
     tester,
   ) async {
+    final server = bookServer(
+      (_) async => jsonAnswer({'error': 'incorrect_credentials'}, 401),
+    );
     final session = SessionController(
       store: store,
-      client: bookServer(
-        (_) async => jsonAnswer({'error': 'incorrect_credentials'}, 401),
-      ).client,
+      client: server.client,
       platform: 'macos',
     );
     await session.load();
@@ -220,6 +223,12 @@ void main() {
       catalog: english,
       screen: LoginScreen(
         session: session,
+        catalogs: CatalogController(
+          builtIn: english,
+          store: MemoryCatalogStore(),
+          client: server.client,
+          session: session,
+        ),
         server: testOrigin,
         endedKey: 'errors.unauthorized',
       ),

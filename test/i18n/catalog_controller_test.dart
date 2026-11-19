@@ -413,6 +413,30 @@ void main() {
       },
     );
 
+    test(
+      "serverLanguage is the language of a catalog from the session's server",
+      () async {
+        final languages = Completer<http.Response>();
+        server.answers['/api/v1/locales'] = () => languages.future;
+        final session = await sessionOn(
+          MemorySessionStore()..connection = signedOut(),
+        );
+        final catalogs = await following(session, device: const [Locale('de')]);
+        expect(catalogs.serverLanguage, isNull, reason: 'the built-in English');
+
+        languages.complete(server.languagesAnswer());
+        await pumpEventQueue();
+        expect(catalogs.serverLanguage, 'de');
+
+        await session.forgetServer();
+        expect(
+          catalogs.serverLanguage,
+          isNull,
+          reason: 'the catalog on screen came from a server left behind',
+        );
+      },
+    );
+
     group('the kept catalog', () {
       StoredCatalog keptGerman({
         Uri? from,

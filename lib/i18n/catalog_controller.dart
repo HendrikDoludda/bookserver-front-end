@@ -76,6 +76,13 @@ class CatalogController extends ChangeNotifier {
 
   Catalog get catalog => _fromServer ?? _builtIn;
 
+  /// The language of the catalog on screen when it came from the session's server, so the server
+  /// offers it; `null` for the built-in English, which the server may not offer.
+  String? get serverLanguage {
+    final shown = _shown;
+    return shown != null && shown.server == _where.$1 ? shown.language : null;
+  }
+
   /// Shows the catalog kept from the session's server, then picks the language for where the
   /// session stands, and again whenever its server or sign-in changes. Nothing here waits for the
   /// server's answers.

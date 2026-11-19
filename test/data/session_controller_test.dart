@@ -642,6 +642,82 @@ void main() {
       expect(server.requests, isEmpty);
     });
   });
+
+  group('signUp', () {
+    Future<SignUpResult> signUpAlice(SessionController session) =>
+        session.signUp(
+          email: 'alice@example.com',
+          username: 'alice',
+          password: 'correct horse battery',
+          passwordRepeat: 'correct horse battery',
+          setupCode: 'ABCD2345',
+          locale: 'de',
+        );
+
+    test('keeps the session of an account ready at once', () async {
+      final session = controller();
+      await session.useServer(_address);
+
+      final result = await signUpAlice(session);
+
+      expect(result, isA<SignedUp>());
+      expect(store.connection?.tokens?.sessionToken, 'session-1');
+      expect(session.stage, isA<LoggedIn>());
+      final body = jsonDecode(
+        server.requests
+            .lastWhere((r) => r.url.path == '/api/v1/auth/register')
+            .body,
+      );
+      expect(body['device_name'], 'macOS');
+      expect(body['platform'], 'macos');
+      expect(body['setup_code'], 'ABCD2345');
+      expect(body['locale'], 'de');
+    });
+
+    test('keeps nothing for an account that waits for its code', () async {
+      server.signUpAnswer = jsonAnswer({'verification_required': true}, 202);
+      final session = controller();
+      await session.useServer(_address);
+
+      final result = await signUpAlice(session);
+
+      expect(result, isA<VerificationRequired>());
+      expect(store.connection?.tokens, isNull);
+      expect(session.stage, isA<LoggedOut>());
+    });
+  });
+
+  test('verifyEmail keeps the session the code opens', () async {
+    final session = controller();
+    await session.useServer(_address);
+
+    final result = await session.verifyEmail(
+      'alice@example.com',
+      'correct horse battery',
+      'ABCD2345',
+    );
+
+    expect(result, isA<LoginOk>());
+    expect(store.connection?.tokens?.sessionToken, 'session-1');
+    expect(session.stage, isA<LoggedIn>());
+    final body = jsonDecode(
+      server.requests
+          .lastWhere((r) => r.url.path == '/api/v1/auth/verify_email')
+          .body,
+    );
+    expect(body['code'], 'ABCD2345');
+    expect(body['platform'], 'macos');
+  });
+
+  test("resendVerificationCode asks the session's server", () async {
+    final session = controller();
+    await session.useServer(_address);
+
+    await session.resendVerificationCode('alice');
+
+    expect(server.countOf('/api/v1/auth/verify_email/resend'), 1);
+    expect(session.stage, isA<LoggedOut>());
+  });
 }
 
 Matcher _addressProblem(AddressProblem problem) =>
@@ -664,6 +740,7 @@ class _BookServer {
   bool offline = false;
   bool refuseSessionTokens = false;
   http.Response? loginAnswer;
+  http.Response? signUpAnswer;
   Future<void> Function()? beforeLibraries;
 
   /// Holds a refresh before the server looks at it.
@@ -691,6 +768,12 @@ class _BookServer {
         return http.Response('pong', 200);
       case '/api/v1/auth/login':
         return loginAnswer ?? jsonAnswer({'status': 'ok', ..._issue()});
+      case '/api/v1/auth/register':
+        return signUpAnswer ?? jsonAnswer({'status': 'ok', ..._issue()});
+      case '/api/v1/auth/verify_email':
+        return jsonAnswer({'status': 'ok', ..._issue()});
+      case '/api/v1/auth/verify_email/resend':
+        return http.Response('', 202);
       case '/api/v1/auth/login/totp' || '/api/v1/auth/login/recovery_code':
         if (_bearer(request) != 'challenge-1') {
           return jsonAnswer({'error': 'unauthorized'}, 401);

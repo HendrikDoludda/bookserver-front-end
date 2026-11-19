@@ -1,12 +1,16 @@
 import 'dart:async';
 
+import 'package:bookserver/data/api_client.dart';
 import 'package:bookserver/data/auth_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/form_page.dart';
 import 'package:bookserver/ui/login_code_screen.dart';
+import 'package:bookserver/ui/sign_up_screen.dart';
 import 'package:bookserver/ui/theme.dart';
+import 'package:bookserver/ui/verify_email_screen.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// Signs in to [server] with a username or email address and a password.
@@ -14,11 +18,13 @@ class LoginScreen extends StatefulWidget {
   const LoginScreen({
     super.key,
     required this.session,
+    required this.catalogs,
     required this.server,
     this.endedKey,
   });
 
   final SessionController session;
+  final CatalogController catalogs;
   final Uri server;
 
   /// Why the last session ended, when the server ended it.
@@ -60,17 +66,21 @@ class _LoginScreenState extends State<LoginScreen> {
         _password.text,
       );
       if (result is LoginTotpRequired && mounted) {
-        unawaited(
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) =>
-                  LoginCodeScreen(session: widget.session, challenge: result),
-            ),
-          ),
-        );
+        _open(LoginCodeScreen(session: widget.session, challenge: result));
       }
     } on Exception catch (error) {
-      if (mounted) {
+      if (!mounted) {
+        return;
+      }
+      if (error case ApiException(key: 'email_not_verified')) {
+        _open(
+          VerifyEmailScreen(
+            session: widget.session,
+            usernameOrEmail: _name.text.trim(),
+            password: _password.text,
+          ),
+        );
+      } else {
         setState(
           () => _messageKey = errorTextKey(error, CatalogScope.of(context)),
         );
@@ -80,6 +90,13 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _busy = false);
       }
     }
+  }
+
+  void _open(Widget screen) {
+    unawaited(
+      Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => screen)),
+    );
   }
 
   @override
@@ -145,6 +162,17 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         if (_busy) const LinearProgressIndicator(),
+        TextButton(
+          onPressed: _busy
+              ? null
+              : () => _open(
+                  SignUpScreen(
+                    session: widget.session,
+                    catalogs: widget.catalogs,
+                  ),
+                ),
+          child: Text(context.t('login.create_account')),
+        ),
         TextButton(
           onPressed: _busy ? null : widget.session.forgetServer,
           child: Text(context.t('login.change_server')),

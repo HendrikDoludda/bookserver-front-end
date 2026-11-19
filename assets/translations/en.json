@@ -56,6 +56,7 @@
   },
   "login": {
     "change_server": "Change server",
+    "create_account": "Create an account",
     "password": "Password",
     "sign_in": "Sign in",
     "title": "Sign in",
@@ -86,5 +87,25 @@
     "invalid_address": "This doesn't look like a server address.",
     "not_a_bookserver": "There's no book server at this address.",
     "title": "Connect to your book server"
+  },
+  "sign_up": {
+    "email": "Email address",
+    "password": "Password",
+    "password_repeat": "Repeat the password",
+    "password_rule": "At least 12 characters.",
+    "setup_code": "Setup code",
+    "setup_code_explanation": "The server's first account becomes its admin and needs the setup code from the server's start log.",
+    "submit": "Create account",
+    "title": "Create an account",
+    "username": "Username",
+    "username_rule": "3 to 32 letters, digits, dots, dashes or underscores."
+  },
+  "verify_email": {
+    "code": "Code",
+    "explanation": "We sent a code to your email address. Enter it here to finish setting up your account.",
+    "resend": "Send a new code",
+    "resent": "If the account still waits for its code, a new one is on its way.",
+    "submit": "Confirm",
+    "title": "Confirm your email address"
   }
 }

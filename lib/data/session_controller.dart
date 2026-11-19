@@ -106,8 +106,7 @@ class SessionController extends ChangeNotifier {
       deviceId: connection.deviceId,
     );
     if (result case LoginOk(:final tokens)) {
-      await _save(connection.withTokens(tokens));
-      _show(LoggedIn(connection.server));
+      await _signIn(connection, tokens);
     }
     return result;
   }
@@ -124,6 +123,69 @@ class SessionController extends ChangeNotifier {
     final tokens = await _auth(
       connection.server,
     ).logInWithCode(challenge.challengeToken, code, recoveryCode: recoveryCode);
+    await _signIn(connection, tokens);
+  }
+
+  /// Creates an account, and signs in to it when the server has it ready at once.
+  Future<SignUpResult> signUp({
+    required String email,
+    required String username,
+    required String password,
+    required String passwordRepeat,
+    String? setupCode,
+    String? locale,
+  }) async {
+    final connection =
+        _connection ?? (throw StateError('No server to sign up on.'));
+    final result = await _auth(connection.server).signUp(
+      email: email,
+      username: username,
+      password: password,
+      passwordRepeat: passwordRepeat,
+      deviceName: _deviceName,
+      platform: _platform,
+      deviceId: connection.deviceId,
+      setupCode: setupCode,
+      locale: locale,
+    );
+    if (result case SignedUp(:final tokens)) {
+      await _signIn(connection, tokens);
+    }
+    return result;
+  }
+
+  /// Confirms the account's email address with the mailed [code], and signs in as [logIn] does.
+  Future<LoginResult> verifyEmail(
+    String usernameOrEmail,
+    String password,
+    String code,
+  ) async {
+    final connection =
+        _connection ?? (throw StateError('No server to sign in to.'));
+    final result = await _auth(connection.server).verifyEmail(
+      usernameOrEmail: usernameOrEmail,
+      password: password,
+      code: code,
+      deviceName: _deviceName,
+      platform: _platform,
+      deviceId: connection.deviceId,
+    );
+    if (result case LoginOk(:final tokens)) {
+      await _signIn(connection, tokens);
+    }
+    return result;
+  }
+
+  /// Asks the server to mail a new code to an account that waits for its email confirmation.
+  Future<void> resendVerificationCode(String usernameOrEmail) {
+    final connection = _connection ?? (throw StateError('No server to ask.'));
+    return _auth(connection.server).resendVerification(usernameOrEmail);
+  }
+
+  Future<void> _signIn(
+    StoredConnection connection,
+    SessionTokens tokens,
+  ) async {
     await _save(connection.withTokens(tokens));
     _show(LoggedIn(connection.server));
   }

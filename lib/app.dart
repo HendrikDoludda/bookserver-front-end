@@ -74,6 +74,7 @@ class _BookserverAppState extends State<BookserverApp> {
                 NeedsServer() => ServerScreen(session: widget.session),
                 LoggedOut(:final server, :final endedKey) => LoginScreen(
                   session: widget.session,
+                  catalogs: widget.catalogs,
                   server: server,
                   endedKey: endedKey,
                 ),
