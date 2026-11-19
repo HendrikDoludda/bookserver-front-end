@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
 
 import 'fake_server.dart';
+import 'memory_catalog_store.dart';
 import 'memory_session_store.dart';
 
 const testAddress = 'https://books.example.ts.net';
@@ -116,11 +117,12 @@ Future<SessionController> pumpApp(
   await session.load();
   final catalogs = CatalogController(
     builtIn: catalog,
+    store: MemoryCatalogStore(),
     client: server.client,
     session: session,
   );
   if (followCatalog) {
-    catalogs.load();
+    await catalogs.load();
   }
   await tester.pumpWidget(BookserverApp(catalogs: catalogs, session: session));
   return session;

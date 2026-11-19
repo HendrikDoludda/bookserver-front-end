@@ -39,7 +39,8 @@ Flutter 3.50 (stable) · Dart 3.14 · Material from the `material_ui` package
 `package:http` 1.6 for every server call · flutter_secure_storage 11.2 for the session · intl 0.20
 for plural rules · pdfrx 3.0
 for PDFs, with its own PDFium built into the app · for EPUBs: archive 4.7, xml 7.1, html 0.15,
-csslib 1.0, flutter_widget_from_html_core 0.17 and path_provider 2.1.
+csslib 1.0 and flutter_widget_from_html_core 0.17 · path_provider 2.1 for the EPUBs' temporary
+files and the kept catalog.
 Code lives in `lib/`, tests in `test/`; the platforms are the native folders that exist.
 
 ### Rules learned
@@ -50,3 +51,4 @@ Frontend rules only, in the backend's table format.
 |---|---|
 | Judge rendering performance on an Apple Silicon Mac or a phone, never on the Intel Mac | Impeller on Intel GPUs holds gigabytes of graphics memory and stalls frames up to 0.8 s; a day went into tuning pdfrx against it |
 | Never queue work with `scheduleTask(…, Priority.idle)` | While anything animates, Flutter requeues the task with `Timer.run` in a busy loop; a widget test's fake clock then runs that loop forever and the test hangs |
+| In a widget test, never read a body through `Stream.timeout` — `ApiClient.stream` or `download` — outside `tester.runAsync` | `Stream.timeout` never delivers under the test's fake clock; a catalog fetch looked silently dropped until a trace showed its body read never ending |

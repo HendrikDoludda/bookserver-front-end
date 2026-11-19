@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:bookserver/data/api_client.dart';
 import 'package:bookserver/data/locales_api.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 
 import '../support/fake_server.dart';
 
@@ -70,14 +73,75 @@ void main() {
   });
 
   group('texts', () {
-    test("reads a language's texts by namespace", () async {
-      final texts = {
-        'login': {'title': 'Entrar'},
-      };
-      final server = FakeServer((_) async => jsonAnswer(texts));
+    final texts = {
+      'login': {'title': 'Entrar'},
+    };
+    http.Response tagged(Object? body, {String? etag}) => http.Response(
+      jsonEncode(body),
+      200,
+      headers: {'content-type': 'application/json', 'etag': ?etag},
+    );
 
-      expect(await apiFor(server).texts('pt-BR'), texts);
+    test("reads a language's texts by namespace, with their ETag", () async {
+      final server = FakeServer((_) async => tagged(texts, etag: '"v1"'));
+
+      final answer = await apiFor(server).texts('pt-BR');
+
+      expect(
+        answer,
+        isA<CatalogTexts>()
+            .having((a) => a.texts, 'texts', texts)
+            .having((a) => a.etag, 'etag', '"v1"'),
+      );
       expectPublicGet(server, '/api/v1/locales/pt-BR/translations');
+      expect(
+        server.requests.single.headers.containsKey('if-none-match'),
+        isFalse,
+        reason: 'no ETag to send',
+      );
+    });
+
+    test('a catalog the server sends without an ETag has none', () async {
+      final server = FakeServer((_) async => tagged(texts));
+
+      final answer = await apiFor(server).texts('de');
+
+      expect(answer, isA<CatalogTexts>().having((a) => a.etag, 'etag', null));
+    });
+
+    test('sends the ETag it has; a 304 says the texts are unchanged', () async {
+      final server = FakeServer(
+        (request) async => request.headers['if-none-match'] == '"v1"'
+            ? http.Response('', 304, headers: {'etag': '"v1"'})
+            : tagged(texts, etag: '"v2"'),
+      );
+
+      expect(
+        await apiFor(server).texts('de', etag: '"v1"'),
+        isA<CatalogUnchanged>(),
+      );
+      expect(
+        await apiFor(server).texts('de', etag: '"v0"'),
+        isA<CatalogTexts>().having((a) => a.etag, 'etag', '"v2"'),
+        reason: 'an ETag that no longer matches gets the texts',
+      );
+    });
+
+    test('refuses texts that are no object of namespaces', () async {
+      for (final body in <Object?>[
+        ['login'],
+        'Entrar',
+        null,
+      ]) {
+        final server = FakeServer((_) async => tagged(body, etag: '"v1"'));
+        await expectLater(
+          apiFor(server).texts('de'),
+          throwsFormatException,
+          reason: '$body',
+        );
+      }
+      final notJson = FakeServer((_) async => http.Response('<html>', 200));
+      await expectLater(apiFor(notJson).texts('de'), throwsFormatException);
     });
 
     test("a language the server doesn't offer is its refusal", () async {

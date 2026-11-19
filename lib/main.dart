@@ -1,4 +1,5 @@
 import 'package:bookserver/app.dart';
+import 'package:bookserver/data/catalog_store.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/data/session_store.dart';
 import 'package:bookserver/i18n/catalog.dart';
@@ -18,9 +19,10 @@ Future<void> main() async {
   await session.load();
   final catalogs = CatalogController(
     builtIn: english,
+    store: FileCatalogStore(),
     client: client,
     session: session,
   );
-  catalogs.load();
+  await catalogs.load();
   runApp(BookserverApp(catalogs: catalogs, session: session));
 }

@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
+import 'package:bookserver/data/catalog_store.dart';
 import 'package:bookserver/data/locales_api.dart';
 import 'package:bookserver/data/session.dart';
 import 'package:bookserver/data/session_controller.dart';
@@ -11,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
 import '../support/fake_server.dart';
+import '../support/memory_catalog_store.dart';
 import '../support/memory_session_store.dart';
 import '../support/screens.dart';
 
@@ -134,18 +138,20 @@ void main() {
       return session;
     }
 
-    CatalogController following(
+    Future<CatalogController> following(
       SessionController session, {
       List<Locale> device = const [Locale('en')],
-    }) {
+      CatalogStore? store,
+    }) async {
       final catalogs = CatalogController(
         builtIn: builtIn,
+        store: store ?? MemoryCatalogStore(),
         client: server.fake.client,
         session: session,
         deviceLocales: () => device,
       );
       addTearDown(catalogs.dispose);
-      catalogs.load();
+      await catalogs.load();
       return catalogs;
     }
 
@@ -155,12 +161,7 @@ void main() {
         final session = await sessionOn(
           MemorySessionStore()..connection = signedOut(),
         );
-        final catalogs = following(session, device: const [Locale('de')]);
-        expect(
-          catalogs.catalog,
-          same(builtIn),
-          reason: 'nothing waits for the server',
-        );
+        final catalogs = await following(session, device: const [Locale('de')]);
 
         await pumpEventQueue();
 
@@ -181,7 +182,7 @@ void main() {
       () async {
         server.setting = 'de';
         final session = await sessionOn(signedInStore());
-        final catalogs = following(session, device: const [Locale('en')]);
+        final catalogs = await following(session, device: const [Locale('en')]);
 
         await pumpEventQueue();
 
@@ -200,7 +201,7 @@ void main() {
 
     test('signed in without a setting, the device decides', () async {
       final session = await sessionOn(signedInStore());
-      final catalogs = following(session, device: const [Locale('de')]);
+      final catalogs = await following(session, device: const [Locale('de')]);
 
       await pumpEventQueue();
 
@@ -212,7 +213,7 @@ void main() {
       final session = await sessionOn(
         MemorySessionStore()..connection = signedOut(),
       );
-      final catalogs = following(session);
+      final catalogs = await following(session);
       await pumpEventQueue();
       expect(catalogs.catalog.language, 'en');
 
@@ -225,7 +226,7 @@ void main() {
     test("signing out picks again, without the user's setting", () async {
       server.setting = 'de';
       final session = await sessionOn(signedInStore());
-      final catalogs = following(session);
+      final catalogs = await following(session);
       await pumpEventQueue();
       expect(catalogs.catalog.language, 'de');
 
@@ -238,7 +239,7 @@ void main() {
 
     test('without a server nothing is asked; a new server is', () async {
       final session = await sessionOn(MemorySessionStore());
-      final catalogs = following(session, device: const [Locale('de')]);
+      final catalogs = await following(session, device: const [Locale('de')]);
       await pumpEventQueue();
       expect(server.fake.requests, isEmpty);
       expect(catalogs.catalog, same(builtIn));
@@ -258,7 +259,7 @@ void main() {
       final session = await sessionOn(
         MemorySessionStore()..connection = signedOut(),
       );
-      final catalogs = following(session, device: const [Locale('de')]);
+      final catalogs = await following(session, device: const [Locale('de')]);
       await pumpEventQueue();
       final requests = server.fake.requests.length;
 
@@ -273,7 +274,7 @@ void main() {
       final session = await sessionOn(
         MemorySessionStore()..connection = signedOut(),
       );
-      following(session);
+      await following(session);
       await pumpEventQueue();
       final requests = server.fake.requests.length;
 
@@ -298,7 +299,10 @@ void main() {
           final session = await sessionOn(
             MemorySessionStore()..connection = signedOut(),
           );
-          final catalogs = following(session, device: const [Locale('de')]);
+          final catalogs = await following(
+            session,
+            device: const [Locale('de')],
+          );
           var notified = 0;
           catalogs.addListener(() => notified++);
 
@@ -318,7 +322,7 @@ void main() {
         final session = await sessionOn(
           MemorySessionStore()..connection = signedOut(),
         );
-        final catalogs = following(session, device: const [Locale('de')]);
+        final catalogs = await following(session, device: const [Locale('de')]);
 
         await pumpEventQueue();
 
@@ -331,7 +335,7 @@ void main() {
       final session = await sessionOn(
         MemorySessionStore()..connection = signedOut(),
       );
-      final catalogs = following(session, device: const [Locale('de')]);
+      final catalogs = await following(session, device: const [Locale('de')]);
       var notified = 0;
       catalogs.addListener(() => notified++);
 
@@ -350,7 +354,7 @@ void main() {
         final session = await sessionOn(
           MemorySessionStore()..connection = signedOut(),
         );
-        final catalogs = following(session);
+        final catalogs = await following(session);
         await pumpEventQueue();
 
         await session.logIn('alice', 'correct horse battery');
@@ -378,7 +382,7 @@ void main() {
           ..answers['/api/v1/account/settings'] = (() async => refused)
           ..answers['/api/v1/auth/refresh'] = (() async => refused);
         final session = await sessionOn(signedInStore());
-        final catalogs = following(session);
+        final catalogs = await following(session);
 
         await pumpEventQueue();
 
@@ -400,7 +404,7 @@ void main() {
         final session = await sessionOn(
           MemorySessionStore()..connection = signedOut(),
         );
-        final catalogs = following(session, device: const [Locale('de')]);
+        final catalogs = await following(session, device: const [Locale('de')]);
 
         await pumpEventQueue();
 
@@ -408,6 +412,221 @@ void main() {
         expect(catalogs.catalog.text('login.subtitle'), 'Built in');
       },
     );
+
+    group('the kept catalog', () {
+      StoredCatalog keptGerman({
+        Uri? from,
+        String title = 'Angemeldet bleiben',
+      }) => StoredCatalog(
+        server: from ?? testOrigin,
+        language: 'de',
+        etag: '"de-1"',
+        texts: {
+          'login': {'title': title},
+        },
+      );
+
+      Future<SessionController> signedOutSession() =>
+          sessionOn(MemorySessionStore()..connection = signedOut());
+
+      http.BaseRequest lastRequest() => server.fake.requests.last;
+
+      test(
+        'without one, the built-in English shows until the server answers',
+        () async {
+          final languages = Completer<http.Response>();
+          server.answers['/api/v1/locales'] = () => languages.future;
+          final catalogs = await following(
+            await signedOutSession(),
+            device: const [Locale('de')],
+          );
+
+          expect(catalogs.catalog, same(builtIn));
+
+          languages.complete(server.languagesAnswer());
+          await pumpEventQueue();
+          expect(catalogs.catalog.text('login.title'), 'Anmelden');
+        },
+      );
+
+      test('shows at once, before the server answers', () async {
+        final languages = Completer<http.Response>();
+        server.answers['/api/v1/locales'] = () => languages.future;
+        final catalogs = await following(
+          await signedOutSession(),
+          device: const [Locale('de')],
+          store: MemoryCatalogStore()..catalog = keptGerman(),
+        );
+
+        expect(catalogs.catalog.language, 'de');
+        expect(catalogs.catalog.text('login.title'), 'Angemeldet bleiben');
+        expect(
+          catalogs.catalog.text('login.subtitle'),
+          'Built in',
+          reason: 'with the built-in English behind it',
+        );
+
+        languages.complete(server.languagesAnswer());
+        await pumpEventQueue();
+      });
+
+      test('one from another server stays unseen', () async {
+        final languages = Completer<http.Response>();
+        server.answers['/api/v1/locales'] = () => languages.future;
+        final catalogs = await following(
+          await signedOutSession(),
+          device: const [Locale('de')],
+          store: MemoryCatalogStore()
+            ..catalog = keptGerman(
+              from: Uri.parse('https://other.example.ts.net'),
+            ),
+        );
+
+        expect(catalogs.catalog, same(builtIn));
+
+        languages.complete(server.languagesAnswer());
+        await pumpEventQueue();
+        expect(catalogs.catalog.text('login.title'), 'Anmelden');
+        expect(lastRequest().headers.containsKey('if-none-match'), isFalse);
+      });
+
+      test(
+        'is re-checked by its ETag; a 304 keeps it and writes nothing',
+        () async {
+          final store = MemoryCatalogStore()..catalog = keptGerman();
+          final catalogs = await following(
+            await signedOutSession(),
+            device: const [Locale('de')],
+            store: store,
+          );
+          var notified = 0;
+          catalogs.addListener(() => notified++);
+
+          await pumpEventQueue();
+
+          expect(lastRequest().url.path, '/api/v1/locales/de/translations');
+          expect(lastRequest().headers['if-none-match'], '"de-1"');
+          expect(catalogs.catalog.text('login.title'), 'Angemeldet bleiben');
+          expect(notified, 0);
+          expect(store.writes, 0);
+        },
+      );
+
+      test(
+        'a changed catalog replaces it on screen and in the store',
+        () async {
+          server.etags['de'] = '"de-2"';
+          final store = MemoryCatalogStore()..catalog = keptGerman();
+          final catalogs = await following(
+            await signedOutSession(),
+            device: const [Locale('de')],
+            store: store,
+          );
+
+          await pumpEventQueue();
+
+          expect(lastRequest().headers['if-none-match'], '"de-1"');
+          expect(catalogs.catalog.text('login.title'), 'Anmelden');
+          expect(store.writes, 1);
+          expect(store.catalog?.server, testOrigin);
+          expect(store.catalog?.language, 'de');
+          expect(store.catalog?.etag, '"de-2"');
+          expect(store.catalog?.texts, {
+            'login': {'title': 'Anmelden'},
+          });
+        },
+      );
+
+      test(
+        'a fetched catalog is kept, and the next pick re-checks it',
+        () async {
+          server.setting = 'de';
+          final store = MemoryCatalogStore();
+          final session = await signedOutSession();
+          await following(session, device: const [Locale('de')], store: store);
+          await pumpEventQueue();
+          expect(store.catalog?.etag, '"de-1"');
+
+          await session.logIn('alice', 'correct horse battery');
+          await pumpEventQueue();
+
+          expect(lastRequest().headers['if-none-match'], '"de-1"');
+          expect(store.writes, 1, reason: 'the 304 wrote nothing');
+        },
+      );
+
+      test('another language is fetched without its ETag', () async {
+        final store = MemoryCatalogStore()..catalog = keptGerman();
+        final catalogs = await following(
+          await signedOutSession(),
+          store: store,
+        );
+
+        await pumpEventQueue();
+
+        expect(lastRequest().url.path, '/api/v1/locales/en/translations');
+        expect(lastRequest().headers.containsKey('if-none-match'), isFalse);
+        expect(catalogs.catalog.language, 'en');
+        expect(store.catalog?.language, 'en');
+      });
+
+      test('offline, it stays', () async {
+        server.answers['/api/v1/locales'] = () async =>
+            throw http.ClientException('Connection refused');
+        final catalogs = await following(
+          await signedOutSession(),
+          device: const [Locale('de')],
+          store: MemoryCatalogStore()..catalog = keptGerman(),
+        );
+
+        await pumpEventQueue();
+
+        expect(catalogs.catalog.text('login.title'), 'Angemeldet bleiben');
+      });
+
+      test('broken kept texts are left out and replaced', () async {
+        final store = MemoryCatalogStore()
+          ..catalog = StoredCatalog(
+            server: testOrigin,
+            language: 'de',
+            etag: '"de-1"',
+            texts: {'login': 'no texts'},
+          );
+        final languages = Completer<http.Response>();
+        server.answers['/api/v1/locales'] = () => languages.future;
+        final catalogs = await following(
+          await signedOutSession(),
+          device: const [Locale('de')],
+          store: store,
+        );
+        expect(catalogs.catalog, same(builtIn));
+
+        languages.complete(server.languagesAnswer());
+        await pumpEventQueue();
+
+        expect(
+          lastRequest().headers.containsKey('if-none-match'),
+          isFalse,
+          reason: 'its ETag names texts the app could not read',
+        );
+        expect(catalogs.catalog.text('login.title'), 'Anmelden');
+        expect(store.catalog?.texts, {
+          'login': {'title': 'Anmelden'},
+        });
+      });
+
+      test('a write that fails keeps the new catalog on screen', () async {
+        final catalogs = await following(
+          await signedOutSession(),
+          device: const [Locale('de')],
+          store: _FullDisk(),
+        );
+
+        await pumpEventQueue();
+
+        expect(catalogs.catalog.text('login.title'), 'Anmelden');
+      });
+    });
 
     test('a pick still on its way when disposed changes nothing', () async {
       final waiting = Completer<http.Response>();
@@ -417,10 +636,12 @@ void main() {
       );
       final catalogs = CatalogController(
         builtIn: builtIn,
+        store: MemoryCatalogStore(),
         client: server.fake.client,
         session: session,
         deviceLocales: () => const [Locale('de')],
-      )..load();
+      );
+      await catalogs.load();
       await pumpEventQueue();
 
       catalogs.dispose();
@@ -437,36 +658,45 @@ void main() {
 }
 
 /// A book server whose catalog offers English, its default, and German, each with its own login
-/// title; [setting] is the user's language. [answers] replaces the answer for a path.
+/// title and ETag; an `If-None-Match` naming the current ETag gets a 304. [setting] is the user's
+/// language, and [answers] replaces the answer for a path.
 class _CatalogServer {
   String? setting;
+  final etags = {'en': '"en-1"', 'de': '"de-1"'};
   final answers = <String, Future<http.Response> Function()>{};
+
+  static const _titles = {'en': 'Sign in, from the server', 'de': 'Anmelden'};
+
+  http.Response languagesAnswer() => jsonAnswer([
+    {'code': 'en', 'display_name': 'English', 'icon': null, 'is_default': true},
+    {
+      'code': 'de',
+      'display_name': 'Deutsch',
+      'icon': null,
+      'is_default': false,
+    },
+  ]);
 
   late final fake = bookServer((request) async {
     if (answers[request.url.path] case final answer?) {
       return answer();
     }
     return switch (request.url.pathSegments) {
-      ['api', 'v1', 'locales'] => jsonAnswer([
-        {
-          'code': 'en',
-          'display_name': 'English',
-          'icon': null,
-          'is_default': true,
-        },
-        {
-          'code': 'de',
-          'display_name': 'Deutsch',
-          'icon': null,
-          'is_default': false,
-        },
-      ]),
-      ['api', 'v1', 'locales', 'en', 'translations'] => jsonAnswer({
-        'login': {'title': 'Sign in, from the server'},
-      }),
-      ['api', 'v1', 'locales', 'de', 'translations'] => jsonAnswer({
-        'login': {'title': 'Anmelden'},
-      }),
+      ['api', 'v1', 'locales'] => languagesAnswer(),
+      ['api', 'v1', 'locales', final code, 'translations']
+          when _titles.containsKey(code) =>
+        request.headers['if-none-match'] == etags[code]
+            ? http.Response('', 304, headers: {'etag': etags[code]!})
+            : http.Response(
+                jsonEncode({
+                  'login': {'title': _titles[code]},
+                }),
+                200,
+                headers: {
+                  'content-type': 'application/json',
+                  'etag': etags[code]!,
+                },
+              ),
       ['api', 'v1', 'account', 'settings'] => jsonAnswer({'locale': setting}),
       ['api', 'v1', 'auth', 'login'] => jsonAnswer({
         'status': 'ok',
@@ -481,4 +711,14 @@ class _CatalogServer {
   List<String> get paths => [
     for (final request in fake.requests) request.url.path,
   ];
+}
+
+/// A store that keeps nothing: every write fails, as on a full disk.
+class _FullDisk implements CatalogStore {
+  @override
+  Future<StoredCatalog?> read() async => null;
+
+  @override
+  Future<void> write(StoredCatalog catalog) async =>
+      throw const FileSystemException('No space left on device');
 }

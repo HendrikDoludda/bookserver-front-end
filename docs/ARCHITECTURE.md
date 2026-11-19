@@ -1,9 +1,9 @@
 # Architecture
 
 ## Where things live
-- `lib/main.dart` — start-up: loads the built-in English and the stored connection, sets the catalog following the session, then runs the app.
+- `lib/main.dart` — start-up: loads the built-in English, the stored connection and the kept catalog, sets the catalog following the session, then runs the app.
 - `lib/app.dart` — the root: `CatalogController`'s catalog and the theme above every screen, the screen for the session's stage, and the navigator the other screens are pushed onto.
-- `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`, `locales_api.dart` — the languages on offer and their texts, `settings_api.dart` — the user's own settings), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept), `session_controller.dart` (its stages and rules) and `session_http_client.dart` (the session as an `http.Client`, for a package that sends its own requests); and `epub_book.dart`, an EPUB's chapters — split into blocks of HTML — and files, read from its archive, and `epub_layout.dart`, a fixed-layout page as data — its size, background and placed lines of text, from its XHTML and the book's CSS.
+- `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`, `locales_api.dart` — the languages on offer and their texts, `settings_api.dart` — the user's own settings), `catalog_store.dart` (the last catalog from the server, kept between launches), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept), `session_controller.dart` (its stages and rules) and `session_http_client.dart` (the session as an `http.Client`, for a package that sends its own requests); and `epub_book.dart`, an EPUB's chapters — split into blocks of HTML — and files, read from its archive, and `epub_layout.dart`, a fixed-layout page as data — its size, background and placed lines of text, from its XHTML and the book's CSS.
 - `lib/i18n/catalog.dart` — the catalog in its language with a fallback for the keys it lacks, `CatalogScope`, `context.t()` and `context.plural()`; `catalog_controller.dart` — which language the app shows (`pickLanguage`) and its catalog from the server (`CatalogController`).
 - `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `home_screen.dart`, `series_screen.dart`, `books_screen.dart`), the frame of a screen that shows a list from the server (`list_screen.dart`), a message in the middle of a screen (`notice.dart`), the layout of a one-form screen (`form_page.dart`), the text a failure shows (`error_text.dart`), images from the server (`server_image.dart`) and from inside an EPUB (`epub_image.dart`), the covers made of them (`cover.dart`) and the cards and grid that show them (`cover_grid.dart`), and the design tokens (`theme.dart`).
 - `lib/ui/readers/` — opening a book in the reader for its format (`open_book.dart`) and the readers: `page_reader.dart` for CBZ and image-folder books, `pdf_reader.dart` for PDFs, `epub_reader.dart` for EPUBs, `fixed_layout_page.dart` for a fixed-layout EPUB's pages; and the page turning a reader shows its pages in (`page_turner.dart`).
@@ -18,6 +18,7 @@
 - A call answers its result or throws one of three: `ApiException` (`{"error": key}` and its status), `ConnectionException` (no connection, a timeout, or a proxy's 502–504 without a key) or `FormatException` (any other answer). A download also throws `FileSystemException` when its file can't be written.
 - A download streams into its file: the timeout covers the wait for the answer and each gap between two chunks, never the whole download, and a download that fails leaves no file.
 - `ApiClient.stream` hands back an answer before its body, for a caller that reads the body itself; there a 304 is an answer, not a failure.
+- `ApiClient.revalidate` names an ETag in `If-None-Match` and answers the whole body; there too a 304 is an answer.
 - A package that sends its own requests, such as pdfrx, gets a `SessionHttpClient`, never a token: every request goes through `SessionController.authorized`, and only GETs to the session's own server go out.
 - Redirects are never followed.
 - Tokens travel only in the `Authorization: Bearer` header — never in a URL — and are never printed or logged; neither are passwords.
@@ -31,10 +32,11 @@
 - Release builds use only `https://` server addresses, typed or stored; `kDebugMode` decides.
 
 ## Catalog
-- The catalog on screen is `CatalogController`'s: the built-in English until the server's catalog in the picked language arrives. It picks again whenever the session's server or sign-in changes; nothing waits for the server.
+- The catalog on screen is `CatalogController`'s: the built-in English, or the copy kept from the session's server, until the server's catalog in the picked language arrives. It picks again whenever the session's server or sign-in changes; nothing waits for the server.
 - The language is the user's setting while the server offers it, else the device's languages in order — the same language and region, else the language, else a code of that language — else the server's default (`pickLanguage`).
 - A catalog from the server falls back key by key to the built-in English.
-- A failed pick — no connection, a refusal, a broken answer, an ended session — keeps the catalog on screen; a pick a newer one overtook drops its answer.
+- The last catalog from the server is kept as `catalog.json` in the app's support folder — plain JSON, nothing in it is secret — written whole or not at all, one write at a time. A fetch in its server and language sends its ETag as `If-None-Match`; a 304 keeps it.
+- A failed pick — no connection, a refusal, a broken answer, an ended session, a full disk — keeps the catalog on screen; a pick a newer one overtook drops its answer.
 
 ## Navigation
 - A screen opens with `Navigator.push` and a `MaterialPageRoute` on the app's one navigator; no router package.
@@ -61,6 +63,7 @@
 - `test/` mirrors `lib/`: `lib/i18n/catalog.dart` is tested in `test/i18n/catalog_test.dart`; shared fakes live in `test/support/`.
 - The server is faked with `FakeServer` (`test/support/fake_server.dart`), built on `package:http`'s `MockClient` — no mocking library; `StreamingFakeServer` for an answer whose body arrives in chunks.
 - Secure storage is faked with `MemorySessionStore`; `SecureSessionStore` itself is tested over `FlutterSecureStorage.setMockInitialValues`.
+- The kept catalog is faked with `MemoryCatalogStore`; `FileCatalogStore` itself is tested on a temp folder.
 - Code that depends on the time takes a clock (`DateTime Function()`), so tests never wait.
 - Screen tests start the whole app as `main()` does, over the fakes (`pumpApp` in `test/support/screens.dart`), and find texts through the catalog, never as literals. The catalog stays the one given unless the test passes `followCatalog: true` and answers the catalog's requests, so the other tests' requests stay their own.
 - A widget test answers every request it leaves waiting before it ends: `ApiClient`'s timeout timer must not outlive the test.

@@ -495,6 +495,57 @@ void main() {
     });
   });
 
+  group('revalidate', () {
+    test('names the ETag it has in If-None-Match, and asks for JSON', () async {
+      final server = FakeServer((_) async => jsonAnswer({'ok': true}));
+
+      await clientFor(server)
+          .revalidate('/api/v1/locales/de/translations', etag: '"v1"');
+      await clientFor(server).revalidate('/api/v1/locales/de/translations');
+
+      final [withTag, without] = server.requests;
+      expect(withTag.method, 'GET');
+      expect(withTag.url, origin.resolve('/api/v1/locales/de/translations'));
+      expect(withTag.headers['if-none-match'], '"v1"');
+      expect(withTag.headers['accept'], 'application/json');
+      expect(without.headers.containsKey('if-none-match'), isFalse);
+    });
+
+    test('a 304 is an answer, and so is a 2xx with its whole body', () async {
+      final server = FakeServer(
+        (request) async => request.headers['if-none-match'] == '"v1"'
+            ? http.Response('', 304)
+            : http.Response('{"a": 1}', 200, headers: {'etag': '"v2"'}),
+      );
+
+      final unchanged = await clientFor(server).revalidate('/x', etag: '"v1"');
+      expect(unchanged.statusCode, 304);
+
+      final changed = await clientFor(server).revalidate('/x', etag: '"v0"');
+      expect(changed.statusCode, 200);
+      expect(changed.body, '{"a": 1}');
+      expect(changed.headers['etag'], '"v2"');
+    });
+
+    test('refuses like the JSON calls', () async {
+      final refused = FakeServer(
+        (_) async => jsonAnswer({'error': 'not_found'}, 404),
+      );
+      await expectLater(
+        clientFor(refused).revalidate('/x'),
+        throwsA(isA<ApiException>().having((e) => e.key, 'key', 'not_found')),
+      );
+
+      final down = FakeServer(
+        (_) async => throw http.ClientException('Connection refused'),
+      );
+      await expectLater(
+        clientFor(down).revalidate('/x'),
+        throwsA(isA<ConnectionException>()),
+      );
+    });
+  });
+
   test('getText answers the body and refuses like the JSON calls', () async {
     final pong = FakeServer(
       (_) async =>

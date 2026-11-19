@@ -55,6 +55,23 @@ class ApiClient {
   Future<Object?> postJson(String path, {Object? body, String? bearer}) =>
       _json('POST', path, body: body, bearer: bearer);
 
+  /// The answer to a GET for [path] that names [etag] in `If-None-Match`: a 304 while the copy
+  /// [etag] names is still current, else the 2xx with its whole body. Any other status throws as
+  /// [getJson] does.
+  Future<http.Response> revalidate(String path, {String? etag}) async {
+    final request = _request(
+      'GET',
+      path,
+      acceptJson: true,
+      headers: {'if-none-match': ?etag},
+    );
+    final response = await _guarded(() => _exchange(request).timeout(timeout));
+    if (_succeeded(response.statusCode) || response.statusCode == 304) {
+      return response;
+    }
+    throw _refusal(response);
+  }
+
   /// Sends a GET for [path] with [headers], such as a `Range`, and answers once the answer's head
   /// has arrived, for a caller that reads the body itself. A 2xx or a 304 is an answer; any other
   /// status throws as [getJson] does. [timeout] covers the wait for the answer and each gap
@@ -181,11 +198,13 @@ class ApiClient {
     Object? body,
     String? bearer,
     bool acceptJson = false,
+    Map<String, String> headers = const {},
   }) {
     final request = http.Request(method, origin.resolve(path))
       // The server never redirects: a redirect means something else answered, such as a Wi-Fi
       // login page.
-      ..followRedirects = false;
+      ..followRedirects = false
+      ..headers.addAll(headers);
     if (acceptJson) {
       request.headers['accept'] = 'application/json';
     }
