@@ -170,6 +170,76 @@ void main() {
     });
   });
 
+  group('logInWithCode', () {
+    test('sends an authenticator code with the challenge token', () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer({'status': 'ok', ...sessionJson}),
+      );
+
+      final tokens = await apiFor(server)
+          .logInWithCode('challenge-1', '123456', recoveryCode: false);
+
+      final request = server.requests.single;
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/v1/auth/login/totp');
+      expect(request.headers['authorization'], 'Bearer challenge-1');
+      expect(jsonDecode(request.body), {'code': '123456'});
+      expect(tokens.sessionToken, 'session-1');
+    });
+
+    test('sends a recovery code to its own route', () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer({'status': 'ok', ...sessionJson}),
+      );
+
+      await apiFor(
+        server,
+      ).logInWithCode('challenge-1', 'ABCD-EFGH-JKMN-PQRS', recoveryCode: true);
+
+      final request = server.requests.single;
+      expect(request.url.path, '/api/v1/auth/login/recovery_code');
+      expect(request.headers['authorization'], 'Bearer challenge-1');
+      expect(jsonDecode(request.body), {'code': 'ABCD-EFGH-JKMN-PQRS'});
+    });
+
+    test('passes a wrong code on as an ApiException', () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer({'error': 'invalid_or_expired_code'}, 400),
+      );
+      await expectLater(
+        apiFor(server)
+            .logInWithCode('challenge-1', '000000', recoveryCode: false),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.key,
+            'key',
+            'invalid_or_expired_code',
+          ),
+        ),
+      );
+    });
+
+    test('refuses an answer of another shape', () async {
+      for (final answer in <Object?>[
+        {
+          'status': 'totp_required',
+          'challenge_token': 'challenge-2',
+          'challenge_expires_at': 1700000000,
+        },
+        [],
+        sessionJson,
+      ]) {
+        final server = FakeServer((_) async => jsonAnswer(answer));
+        await expectLater(
+          apiFor(server)
+              .logInWithCode('challenge-1', '123456', recoveryCode: false),
+          throwsFormatException,
+          reason: '$answer',
+        );
+      }
+    });
+  });
+
   group('refresh', () {
     test('sends the refresh token and reads the new tokens', () async {
       final server = FakeServer((_) async => jsonAnswer(sessionJson));

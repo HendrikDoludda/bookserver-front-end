@@ -59,8 +59,16 @@
     "password": "Password",
     "sign_in": "Sign in",
     "title": "Sign in",
-    "totp_unavailable": "This account uses two-factor authentication, which this version of the app can't do yet.",
     "username_or_email": "Username or email address"
+  },
+  "login_code": {
+    "app_code": "Code",
+    "app_explanation": "Enter the 6-digit code from your authenticator app.",
+    "recovery_code": "Recovery code",
+    "recovery_explanation": "Enter one of the recovery codes you saved when you turned on two-factor authentication. Each one works once.",
+    "title": "Two-factor authentication",
+    "use_app_code": "Use the authenticator app instead",
+    "use_recovery_code": "Use a recovery code instead"
   },
   "reader": {
     "open_failed": "This book can't be opened.",

@@ -115,6 +115,26 @@ class AuthApi {
     };
   }
 
+  /// Finishes a login that answered [LoginTotpRequired], with a code from the authenticator app
+  /// or, when [recoveryCode], one of the recovery codes.
+  Future<SessionTokens> logInWithCode(
+    String challengeToken,
+    String code, {
+    required bool recoveryCode,
+  }) async {
+    final json = await _client.postJson(
+      recoveryCode
+          ? '/api/v1/auth/login/recovery_code'
+          : '/api/v1/auth/login/totp',
+      body: {'code': code},
+      bearer: challengeToken,
+    );
+    if (json case {'status': 'ok'}) {
+      return SessionTokens.fromJson(json);
+    }
+    throw const FormatException('Not a login answer.');
+  }
+
   /// New tokens for the session behind [refreshToken]; the old ones stop working.
   Future<SessionTokens> refresh(String refreshToken) async {
     final json = await _client.postJson(

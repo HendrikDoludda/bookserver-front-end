@@ -5,7 +5,7 @@
 - `lib/app.dart` — the root: `CatalogController`'s catalog, Material's locale for it (`materialLocaleOf`) and the theme above every screen, the screen for the session's stage, and the navigator the other screens are pushed onto.
 - `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`, `locales_api.dart` — the languages on offer and their texts, `settings_api.dart` — the user's own settings), `catalog_store.dart` (the last catalog from the server, kept between launches), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept), `session_controller.dart` (its stages and rules) and `session_http_client.dart` (the session as an `http.Client`, for a package that sends its own requests); and `epub_book.dart`, an EPUB's chapters — split into blocks of HTML — and files, read from its archive, and `epub_layout.dart`, a fixed-layout page as data — its size, background and placed lines of text, from its XHTML and the book's CSS.
 - `lib/i18n/catalog.dart` — the catalog in its language with a fallback for the keys it lacks, `CatalogScope`, `context.t()` and `context.plural()`; `catalog_controller.dart` — which language the app shows (`pickLanguage`) and its catalog from the server (`CatalogController`).
-- `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `home_screen.dart`, `series_screen.dart`, `books_screen.dart`), the frame of a screen that shows a list from the server (`list_screen.dart`), a message in the middle of a screen (`notice.dart`), the layout of a one-form screen (`form_page.dart`), the text a failure shows (`error_text.dart`), images from the server (`server_image.dart`) and from inside an EPUB (`epub_image.dart`), the covers made of them (`cover.dart`) and the cards and grid that show them (`cover_grid.dart`), and the design tokens (`theme.dart`).
+- `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `login_code_screen.dart`, `home_screen.dart`, `series_screen.dart`, `books_screen.dart`), the frame of a screen that shows a list from the server (`list_screen.dart`), a message in the middle of a screen (`notice.dart`), the layout of a one-form screen, with Back when it was pushed (`form_page.dart`), the text a failure shows (`error_text.dart`), images from the server (`server_image.dart`) and from inside an EPUB (`epub_image.dart`), the covers made of them (`cover.dart`) and the cards and grid that show them (`cover_grid.dart`), and the design tokens (`theme.dart`).
 - `lib/ui/readers/` — opening a book in the reader for its format (`open_book.dart`) and the readers: `page_reader.dart` for CBZ and image-folder books, `pdf_reader.dart` for PDFs, `epub_reader.dart` for EPUBs, `fixed_layout_page.dart` for a fixed-layout EPUB's pages; and the page turning a reader shows its pages in (`page_turner.dart`).
 - `assets/translations/en.json` — the built-in English: the server's answer to `GET /api/v1/locales/en/translations`, refreshed with the command in [commands.md](commands.md).
 - Code in `lib/` is imported by package — `package:bookserver/…` — never by a relative path.
@@ -22,6 +22,7 @@
 - A package that sends its own requests, such as pdfrx, gets a `SessionHttpClient`, never a token: every request goes through `SessionController.authorized`, and only GETs to the session's own server go out.
 - Redirects are never followed.
 - Tokens travel only in the `Authorization: Bearer` header — never in a URL — and are never printed or logged; neither are passwords.
+- A password or a code lives only in the state of the screen that asks for it, and goes from there straight into a request; nothing stores one.
 - A server address is an origin — scheme, host and port, nothing else (`parseServerAddress`).
 
 ## Session
@@ -41,7 +42,8 @@
 
 ## Navigation
 - A screen opens with `Navigator.push` and a `MaterialPageRoute` on the app's one navigator; no router package.
-- When the session's stage leaves `LoggedIn`, `BookserverApp` pops every screen above the first, so nothing that needed the session stays on screen.
+- When the session's stage changes kind — `NeedsServer`, `LoggedOut`, `LoggedIn` — `BookserverApp` pops every screen above the first, so nothing pushed for the stage before stays on screen.
+- The account flows before a session — the code step, sign-up, the password reset — are pushed from the login screen.
 
 ## UI
 - A list from the server is shown by a `ListScreen`: progress while it loads, the failure with Reload under it, a notice when it's empty, and Reload in the app bar unless the screen turns it off.

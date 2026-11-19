@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:bookserver/data/auth_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/form_page.dart';
+import 'package:bookserver/ui/login_code_screen.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -57,7 +60,14 @@ class _LoginScreenState extends State<LoginScreen> {
         _password.text,
       );
       if (result is LoginTotpRequired && mounted) {
-        setState(() => _messageKey = 'login.totp_unavailable');
+        unawaited(
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  LoginCodeScreen(session: widget.session, challenge: result),
+            ),
+          ),
+        );
       }
     } on Exception catch (error) {
       if (mounted) {

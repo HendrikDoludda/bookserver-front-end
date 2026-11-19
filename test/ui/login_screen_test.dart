@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:bookserver/data/session.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/ui/login_code_screen.dart';
 import 'package:bookserver/ui/login_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -183,26 +184,25 @@ void main() {
     expect(find.text(english.text('connection.unreachable')), findsOneWidget);
   });
 
-  testWidgets(
-    'tells an account with two-factor that the app cannot do it yet',
-    (tester) async {
-      await atLogin(
-        tester,
-        () async => jsonAnswer({
-          'status': 'totp_required',
-          'challenge_token': 'challenge-1',
-          'challenge_expires_at': 1700000000,
-        }),
-      );
+  testWidgets('goes on to the code step for an account with two-factor', (
+    tester,
+  ) async {
+    await atLogin(
+      tester,
+      () async => jsonAnswer({
+        'status': 'totp_required',
+        'challenge_token': 'challenge-1',
+        'challenge_expires_at': 1700000000,
+      }),
+    );
 
-      await fillIn(tester);
-      await tester.tap(signInButton());
-      await tester.pumpAndSettle();
+    await fillIn(tester);
+    await tester.tap(signInButton());
+    await tester.pumpAndSettle();
 
-      expect(find.text(english.text('login.totp_unavailable')), findsOneWidget);
-      expect(nameField(), findsOneWidget);
-    },
-  );
+    expect(find.byType(LoginCodeScreen), findsOneWidget);
+    expect(find.text(english.text('login_code.title')), findsOneWidget);
+  });
 
   testWidgets('shows why the last session ended until the next try', (
     tester,

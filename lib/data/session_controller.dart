@@ -112,6 +112,22 @@ class SessionController extends ChangeNotifier {
     return result;
   }
 
+  /// Finishes the login [challenge] with a code from the authenticator app or, when
+  /// [recoveryCode], one of the recovery codes.
+  Future<void> logInWithCode(
+    LoginTotpRequired challenge,
+    String code, {
+    bool recoveryCode = false,
+  }) async {
+    final connection =
+        _connection ?? (throw StateError('No server to log in to.'));
+    final tokens = await _auth(
+      connection.server,
+    ).logInWithCode(challenge.challengeToken, code, recoveryCode: recoveryCode);
+    await _save(connection.withTokens(tokens));
+    _show(LoggedIn(connection.server));
+  }
+
   /// Signs out here at once, then tells the server.
   Future<void> logOut() async {
     final connection = _connection;

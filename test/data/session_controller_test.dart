@@ -338,6 +338,61 @@ void main() {
     });
   });
 
+  group('logInWithCode', () {
+    final challenge = LoginTotpRequired(
+      challengeToken: 'challenge-1',
+      challengeExpiresAt: DateTime.utc(2026, 11, 14, 12, 5),
+    );
+
+    Future<SessionController> atTheCodeStep() async {
+      final session = controller();
+      await session.useServer(_address);
+      return session;
+    }
+
+    test('keeps the session an authenticator code opens', () async {
+      final session = await atTheCodeStep();
+
+      await session.logInWithCode(challenge, '123456');
+
+      expect(server.bearersOf('/api/v1/auth/login/totp'), ['challenge-1']);
+      expect(store.connection?.tokens?.sessionToken, 'session-1');
+      expect(session.stage, isA<LoggedIn>());
+    });
+
+    test('a recovery code goes to its own route', () async {
+      final session = await atTheCodeStep();
+
+      await session.logInWithCode(
+        challenge,
+        'ABCD-EFGH-JKMN-PQRS',
+        recoveryCode: true,
+      );
+
+      expect(server.countOf('/api/v1/auth/login/recovery_code'), 1);
+      expect(server.countOf('/api/v1/auth/login/totp'), 0);
+      expect(session.stage, isA<LoggedIn>());
+    });
+
+    test('keeps nothing when the server refuses the code', () async {
+      final session = await atTheCodeStep();
+
+      await expectLater(
+        session.logInWithCode(challenge, '000000'),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.key,
+            'key',
+            'invalid_or_expired_code',
+          ),
+        ),
+      );
+
+      expect(store.connection?.tokens, isNull);
+      expect(session.stage, isA<LoggedOut>());
+    });
+  });
+
   group('logOut', () {
     test(
       'signs out here and tells the server with the refresh token',
@@ -636,6 +691,15 @@ class _BookServer {
         return http.Response('pong', 200);
       case '/api/v1/auth/login':
         return loginAnswer ?? jsonAnswer({'status': 'ok', ..._issue()});
+      case '/api/v1/auth/login/totp' || '/api/v1/auth/login/recovery_code':
+        if (_bearer(request) != 'challenge-1') {
+          return jsonAnswer({'error': 'unauthorized'}, 401);
+        }
+        final code = jsonDecode(request.body)['code'];
+        if (code != '123456' && code != 'ABCD-EFGH-JKMN-PQRS') {
+          return jsonAnswer({'error': 'invalid_or_expired_code'}, 400);
+        }
+        return jsonAnswer({'status': 'ok', ..._issue()});
       case '/api/v1/auth/refresh':
         if (!refreshReceived.isCompleted) {
           refreshReceived.complete();

@@ -26,20 +26,27 @@ class BookserverApp extends StatefulWidget {
 class _BookserverAppState extends State<BookserverApp> {
   final _navigator = GlobalKey<NavigatorState>();
 
+  late Type _stageKind;
+
   @override
   void initState() {
     super.initState();
-    widget.session.addListener(_closeScreensAfterSession);
+    _stageKind = widget.session.stage.runtimeType;
+    widget.session.addListener(_closeScreensOnNewStage);
   }
 
   @override
   void dispose() {
-    widget.session.removeListener(_closeScreensAfterSession);
+    widget.session.removeListener(_closeScreensOnNewStage);
     super.dispose();
   }
 
-  void _closeScreensAfterSession() {
-    if (widget.session.stage is! LoggedIn) {
+  /// Leaves only the first screen, the new stage's, when the stage changes kind: a screen pushed
+  /// for the stage before, such as the code step over the login screen, belongs to it.
+  void _closeScreensOnNewStage() {
+    final kind = widget.session.stage.runtimeType;
+    if (kind != _stageKind) {
+      _stageKind = kind;
       _navigator.currentState?.popUntil((route) => route.isFirst);
     }
   }
