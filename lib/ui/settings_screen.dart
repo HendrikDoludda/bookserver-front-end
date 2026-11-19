@@ -1,11 +1,14 @@
 import 'package:bookserver/data/locales_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/data/settings_api.dart';
+import 'package:bookserver/data/two_factor_api.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/i18n/catalog_controller.dart';
+import 'package:bookserver/ui/code_and_password_screen.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
 import 'package:bookserver/ui/theme.dart';
+import 'package:bookserver/ui/two_factor_setup_screen.dart';
 import 'package:material_ui/material_ui.dart';
 
 // The device-language entry's value in the list: no language code is empty.
@@ -41,6 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   var _choice = _followDevice;
   var _saving = false;
   String? _saveErrorKey;
+  TwoFactorStatus? _twoFactor;
 
   @override
   void initState() {
@@ -55,10 +59,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _load() async {
     try {
-      final (languages, setting) = await widget.session.authorized(
+      final (languages, setting, twoFactor) = await widget.session.authorized(
         (api, token) async => (
           await LocalesApi(api).languages(),
           await SettingsApi(api).language(token),
+          await TwoFactorApi(api).status(token),
         ),
       );
       final catalogs = widget.catalogs;
@@ -71,6 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _languages = languages;
           _deviceTexts = deviceTexts;
           _choice = setting ?? _followDevice;
+          _twoFactor = twoFactor;
           _loadErrorKey = null;
         });
       }
@@ -203,8 +209,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
+            if (_twoFactor case final twoFactor?) ...[
+              const SizedBox(height: Spacing.large),
+              _TwoFactorSection(status: twoFactor, open: _openTwoFactor),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// Opens one of the two-factor screens, and loads the settings again once it closes. Turning
+  /// two-factor off signs out, which closes this screen as well.
+  Future<void> _openTwoFactor(Widget Function(SessionController) screen) async {
+    await Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => screen(widget.session)));
+    if (mounted) {
+      _reload();
+    }
+  }
+}
+
+/// Whether two-factor authentication is on, and the ways to change that.
+class _TwoFactorSection extends StatelessWidget {
+  const _TwoFactorSection({required this.status, required this.open});
+
+  final TwoFactorStatus status;
+  final Future<void> Function(Widget Function(SessionController)) open;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.medium),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: Spacing.small,
+        children: [
+          Text(
+            context.t('two_factor.title'),
+            style: theme.textTheme.titleMedium,
+          ),
+          if (status.enabled) ...[
+            Text(context.t('two_factor.on')),
+            Text(
+              context.plural('two_factor.codes_left', status.recoveryCodesLeft),
+            ),
+            Wrap(
+              spacing: Spacing.small,
+              runSpacing: Spacing.small,
+              children: [
+                OutlinedButton(
+                  onPressed: () => open(
+                    (session) => CodeAndPasswordScreen(
+                      session: session,
+                      action: TwoFactorAction.renewCodes,
+                    ),
+                  ),
+                  child: Text(context.t('two_factor.renew')),
+                ),
+                OutlinedButton(
+                  onPressed: () => open(
+                    (session) => CodeAndPasswordScreen(
+                      session: session,
+                      action: TwoFactorAction.turnOff,
+                    ),
+                  ),
+                  child: Text(context.t('two_factor.turn_off')),
+                ),
+              ],
+            ),
+          ] else ...[
+            Text(context.t('two_factor.explanation_off')),
+            FilledButton.tonal(
+              onPressed: () =>
+                  open((session) => TwoFactorSetupScreen(session: session)),
+              child: Text(context.t('two_factor.turn_on')),
+            ),
+          ],
+        ],
       ),
     );
   }

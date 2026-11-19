@@ -37,7 +37,8 @@ holds only what is about this code.
 Flutter 3.50 (stable) · Dart 3.14 · Material from the `material_ui` package
 (`package:material_ui/material_ui.dart`, as the 3.50 template sets it up) · flutter_lints 6 ·
 `package:http` 1.6 for every server call · flutter_secure_storage 11.2 for the session · intl 0.20
-for plural rules · pdfrx 3.0
+for plural rules · qr 4.0 for the two-factor QR code · url_launcher 6.3 to open its link on phones ·
+pdfrx 3.0
 for PDFs, with its own PDFium built into the app · for EPUBs: archive 4.7, xml 7.1, html 0.15,
 csslib 1.0 and flutter_widget_from_html_core 0.17 · path_provider 2.1 for the EPUBs' temporary
 files and the kept catalog.

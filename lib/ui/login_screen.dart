@@ -22,6 +22,7 @@ class LoginScreen extends StatefulWidget {
     required this.catalogs,
     required this.server,
     this.endedKey,
+    this.noticeKey,
   });
 
   final SessionController session;
@@ -30,6 +31,9 @@ class LoginScreen extends StatefulWidget {
 
   /// Why the last session ended, when the server ended it.
   final String? endedKey;
+
+  /// Why the user's own change signed them out.
+  final String? noticeKey;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -41,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
   late final _typed = Listenable.merge([_name, _password]);
   var _busy = false;
   late String? _messageKey = widget.endedKey;
-  String? _noticeKey;
+  late String? _noticeKey = widget.noticeKey;
 
   @override
   void dispose() {

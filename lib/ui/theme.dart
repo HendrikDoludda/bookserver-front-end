@@ -13,7 +13,18 @@ abstract final class Widths {
 
   /// The widest a column of running text gets, so its lines stay easy to follow.
   static const double reading = 720;
+
+  /// The widest a QR code gets: large enough for a phone camera across a desk.
+  static const double qrCode = 240;
 }
+
+/// Text whose characters line up in columns, such as recovery codes.
+// The platforms name their fixed-width fonts differently: `monospace` is Android's, Menlo
+// macOS's and iOS's, Consolas Windows'.
+const monospace = TextStyle(
+  fontFamily: 'monospace',
+  fontFamilyFallback: ['Menlo', 'Consolas', 'Courier New'],
+);
 
 /// The book, series and library covers of the browse grids.
 abstract final class Covers {

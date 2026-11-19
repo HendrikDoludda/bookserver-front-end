@@ -72,12 +72,14 @@ class _BookserverAppState extends State<BookserverApp> {
               listenable: widget.session,
               builder: (context, _) => switch (widget.session.stage) {
                 NeedsServer() => ServerScreen(session: widget.session),
-                LoggedOut(:final server, :final endedKey) => LoginScreen(
-                  session: widget.session,
-                  catalogs: widget.catalogs,
-                  server: server,
-                  endedKey: endedKey,
-                ),
+                LoggedOut(:final server, :final endedKey, :final noticeKey) =>
+                  LoginScreen(
+                    session: widget.session,
+                    catalogs: widget.catalogs,
+                    server: server,
+                    endedKey: endedKey,
+                    noticeKey: noticeKey,
+                  ),
                 LoggedIn() => HomeScreen(
                   session: widget.session,
                   catalogs: widget.catalogs,

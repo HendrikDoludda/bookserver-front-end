@@ -394,6 +394,19 @@ void main() {
   });
 
   group('logOut', () {
+    test('passes a notice on to the login screen', () async {
+      final session = await signedIn();
+
+      await session.logOut(noticeKey: 'two_factor.off_done');
+
+      expect(
+        session.stage,
+        isA<LoggedOut>()
+            .having((s) => s.noticeKey, 'noticeKey', 'two_factor.off_done')
+            .having((s) => s.endedKey, 'endedKey', isNull),
+      );
+    });
+
     test(
       'signs out here and tells the server with the refresh token',
       () async {

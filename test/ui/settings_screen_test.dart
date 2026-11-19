@@ -1,7 +1,11 @@
 import 'dart:convert';
 
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/ui/code_and_password_screen.dart';
+import 'package:bookserver/ui/qr_code.dart';
+import 'package:bookserver/ui/recovery_codes_screen.dart';
 import 'package:bookserver/ui/settings_screen.dart';
+import 'package:bookserver/ui/two_factor_setup_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
@@ -193,10 +197,182 @@ void main() {
       expect(askedForGerman(), isTrue);
     });
   });
+
+  group('two-factor authentication', () {
+    Future<void> tapAndSettle(WidgetTester tester, Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> enter(WidgetTester tester, String labelKey, String text) =>
+        tester.enterText(
+          find.widgetWithText(TextField, english.text(labelKey)),
+          text,
+        );
+
+    Finder filledButton(String key) =>
+        find.widgetWithText(FilledButton, english.text(key));
+
+    Map<String, Object?> bodyOf(String path) => jsonDecode(
+      server.fake.requests.lastWhere((r) => r.url.path == path).body,
+    ) as Map<String, Object?>;
+
+    testWidgets('off: says so, with Turn on', (tester) async {
+      await atSettings(tester);
+
+      expect(find.text(english.text('two_factor.title')), findsOneWidget);
+      expect(
+        find.text(english.text('two_factor.explanation_off')),
+        findsOneWidget,
+      );
+      expect(find.text(english.text('two_factor.turn_on')), findsOneWidget);
+      expect(find.text(english.text('two_factor.on')), findsNothing);
+    });
+
+    testWidgets('on: says so, with the codes left and both ways on', (
+      tester,
+    ) async {
+      server
+        ..twoFactorOn = true
+        ..codesLeft = 1;
+      await atSettings(tester);
+
+      expect(find.text(english.text('two_factor.on')), findsOneWidget);
+      expect(
+        find.text(english.plural('two_factor.codes_left', 1)),
+        findsOneWidget,
+      );
+      expect(find.text(english.text('two_factor.renew')), findsOneWidget);
+      expect(find.text(english.text('two_factor.turn_off')), findsOneWidget);
+      expect(find.text(english.text('two_factor.turn_on')), findsNothing);
+    });
+
+    testWidgets(
+      'turning on shows the QR code and the key, then the codes once, then on',
+      (tester) async {
+        await atSettings(tester);
+
+        await tapAndSettle(
+          tester,
+          find.text(english.text('two_factor.turn_on')),
+        );
+        expect(find.byType(TwoFactorSetupScreen), findsOneWidget);
+        expect(find.byType(QrCodeView), findsOneWidget);
+        expect(find.text('JBSWY3DPEHPK3PXP'), findsOneWidget);
+
+        await enter(tester, 'two_factor.code', '123456');
+        await enter(tester, 'two_factor.password', 'correct horse battery');
+        await tester.pump();
+        await tapAndSettle(tester, filledButton('two_factor.confirm'));
+
+        expect(bodyOf('/api/v1/account/totp/confirm'), {
+          'code': '123456',
+          'password': 'correct horse battery',
+        });
+        expect(find.byType(RecoveryCodesScreen), findsOneWidget);
+        expect(find.textContaining('CODE-10-AAAA-BBBB'), findsOneWidget);
+        expect(find.byType(BackButton), findsNothing);
+
+        await tapAndSettle(tester, filledButton('two_factor.done'));
+
+        expect(find.byType(SettingsScreen), findsOneWidget);
+        expect(find.text(english.text('two_factor.on')), findsOneWidget);
+        expect(
+          find.text(english.plural('two_factor.codes_left', 10)),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('new recovery codes are shown once, then counted', (
+      tester,
+    ) async {
+      server
+        ..twoFactorOn = true
+        ..codesLeft = 2;
+      await atSettings(tester);
+
+      await tapAndSettle(tester, find.text(english.text('two_factor.renew')));
+      expect(find.byType(CodeAndPasswordScreen), findsOneWidget);
+      await enter(tester, 'two_factor.password', 'correct horse battery');
+      await enter(tester, 'two_factor.code_or_recovery', '123456');
+      await tester.pump();
+      await tapAndSettle(tester, filledButton('two_factor.renew'));
+
+      expect(bodyOf('/api/v1/account/totp/recovery_codes'), {
+        'password': 'correct horse battery',
+        'code': '123456',
+      });
+      expect(find.byType(RecoveryCodesScreen), findsOneWidget);
+      await tapAndSettle(tester, filledButton('two_factor.done'));
+
+      expect(
+        find.text(english.plural('two_factor.codes_left', 10)),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('turning off signs out to the login screen, which says why', (
+      tester,
+    ) async {
+      server
+        ..twoFactorOn = true
+        ..codesLeft = 10;
+      await atSettings(tester);
+
+      await tapAndSettle(
+        tester,
+        find.text(english.text('two_factor.turn_off')),
+      );
+      await enter(tester, 'two_factor.password', 'correct horse battery');
+      await enter(tester, 'two_factor.code_or_recovery', '123456');
+      await tester.pump();
+      await tapAndSettle(tester, filledButton('two_factor.turn_off'));
+
+      expect(bodyOf('/api/v1/account/totp/disable'), {
+        'password': 'correct horse battery',
+        'code': '123456',
+      });
+      expect(
+        find.text(english.text('login.username_or_email')),
+        findsOneWidget,
+      );
+      expect(find.text(english.text('two_factor.off_done')), findsOneWidget);
+      expect(find.byType(SettingsScreen), findsNothing);
+    });
+
+    testWidgets('a wrong code says so and stays', (tester) async {
+      server
+        ..twoFactorOn = true
+        ..codesLeft = 10;
+      await atSettings(tester);
+      await tapAndSettle(
+        tester,
+        find.text(english.text('two_factor.turn_off')),
+      );
+
+      await enter(tester, 'two_factor.password', 'correct horse battery');
+      await enter(tester, 'two_factor.code_or_recovery', '000000');
+      await tester.pump();
+      await tapAndSettle(tester, filledButton('two_factor.turn_off'));
+
+      expect(
+        find.text(english.text('errors.invalid_or_expired_code')),
+        findsOneWidget,
+      );
+      expect(find.byType(CodeAndPasswordScreen), findsOneWidget);
+      expect(server.twoFactorOn, isTrue);
+    });
+  });
 }
 
+const twoFactorSetupUrl =
+    'otpauth://totp/Bookserver:alice?secret=JBSWY3DPEHPK3PXP&issuer=Bookserver';
+
 /// A server offering English, its default, and German with an icon, keeping the user's language
-/// setting as a PUT leaves it.
+/// setting as a PUT leaves it, and two-factor authentication as its routes leave it: the app code
+/// `123456` and the password `correct horse battery` are the right ones.
 class _SettingsServer {
   String? setting;
 
@@ -208,6 +384,40 @@ class _SettingsServer {
 
   /// Whether the German texts fail to load.
   var germanFails = false;
+
+  var twoFactorOn = false;
+  var codesLeft = 0;
+  var _issued = 0;
+
+  http.Response _twoFactor(http.Request request) {
+    final body = request.body.isEmpty
+        ? const <String, Object?>{}
+        : jsonDecode(request.body) as Map<String, Object?>;
+    if (body.isNotEmpty &&
+        (body['code'] != '123456' ||
+            body['password'] != 'correct horse battery')) {
+      return jsonAnswer({'error': 'invalid_or_expired_code'}, 400);
+    }
+    switch (request.url.path) {
+      case '/api/v1/account/totp':
+        return jsonAnswer({
+          'otpauth_url': twoFactorSetupUrl,
+          'secret_base32': 'JBSWY3DPEHPK3PXP',
+        });
+      case '/api/v1/account/totp/disable':
+        twoFactorOn = false;
+        return http.Response('', 204);
+      default:
+        twoFactorOn = true;
+        codesLeft = 10;
+        _issued++;
+        return jsonAnswer({
+          'recovery_codes': [
+            for (var i = 0; i < 10; i++) 'CODE-$_issued$i-AAAA-BBBB',
+          ],
+        });
+    }
+  }
 
   late final fake = bookServer(
     (request) async => switch ((request.method, request.url.path)) {
@@ -242,6 +452,13 @@ class _SettingsServer {
       ('GET', '/api/v1/locales/en/translations') => jsonAnswer(
         <String, Object?>{},
       ),
+      ('GET', '/api/v1/account/totp') => jsonAnswer({
+        'enabled': twoFactorOn,
+        'recovery_codes_left': codesLeft,
+      }),
+      ('POST', final path) when path.startsWith('/api/v1/account/totp') =>
+        _twoFactor(request),
+      ('POST', '/api/v1/auth/logout') => http.Response('', 204),
       _ => notFound(),
     },
   );

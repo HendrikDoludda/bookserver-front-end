@@ -18,12 +18,15 @@ final class NeedsServer extends SessionStage {
 }
 
 final class LoggedOut extends SessionStage {
-  const LoggedOut(this.server, {this.endedKey});
+  const LoggedOut(this.server, {this.endedKey, this.noticeKey});
 
   final Uri server;
 
   /// When the server ended the session: the text key that says so.
   final String? endedKey;
+
+  /// When the user's own change signed them out: the text key that says why.
+  final String? noticeKey;
 }
 
 final class LoggedIn extends SessionStage {
@@ -212,15 +215,16 @@ class SessionController extends ChangeNotifier {
     _show(LoggedIn(connection.server));
   }
 
-  /// Signs out here at once, then tells the server.
-  Future<void> logOut() async {
+  /// Signs out here at once, then tells the server. The login screen shows [noticeKey]'s text,
+  /// such as why a change of the user's signed them out.
+  Future<void> logOut({String? noticeKey}) async {
     final connection = _connection;
     final tokens = connection?.tokens;
     if (connection == null || tokens == null) {
       return;
     }
     await _save(connection.withoutTokens());
-    _show(LoggedOut(connection.server));
+    _show(LoggedOut(connection.server, noticeKey: noticeKey));
     await _endOnServer(connection.server, tokens);
   }
 
