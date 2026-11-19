@@ -48,27 +48,47 @@ class _BookserverAppState extends State<BookserverApp> {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: widget.catalogs,
-      builder: (context, _) => CatalogScope(
-        catalog: widget.catalogs.catalog,
-        child: MaterialApp(
-          navigatorKey: _navigator,
-          onGenerateTitle: (context) => context.t('app.name'),
-          theme: lightTheme,
-          darkTheme: darkTheme,
-          home: ListenableBuilder(
-            listenable: widget.session,
-            builder: (context, _) => switch (widget.session.stage) {
-              NeedsServer() => ServerScreen(session: widget.session),
-              LoggedOut(:final server, :final endedKey) => LoginScreen(
-                session: widget.session,
-                server: server,
-                endedKey: endedKey,
-              ),
-              LoggedIn() => HomeScreen(session: widget.session),
-            },
+      builder: (context, _) {
+        final catalog = widget.catalogs.catalog;
+        final materialLocale = materialLocaleOf(catalog.language);
+        return CatalogScope(
+          catalog: catalog,
+          child: MaterialApp(
+            navigatorKey: _navigator,
+            locale: materialLocale,
+            supportedLocales: [materialLocale],
+            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+            onGenerateTitle: (context) => context.t('app.name'),
+            theme: lightTheme,
+            darkTheme: darkTheme,
+            home: ListenableBuilder(
+              listenable: widget.session,
+              builder: (context, _) => switch (widget.session.stage) {
+                NeedsServer() => ServerScreen(session: widget.session),
+                LoggedOut(:final server, :final endedKey) => LoginScreen(
+                  session: widget.session,
+                  server: server,
+                  endedKey: endedKey,
+                ),
+                LoggedIn() => HomeScreen(session: widget.session),
+              },
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
+}
+
+/// The locale Material's own texts — the Back tooltip, the Cut/Copy/Paste menu — use for the
+/// catalog's [language]: its own where `material_ui` has texts for it, else English.
+// A locale no delegate supports would leave the app without MaterialLocalizations, which every
+// Back button needs.
+Locale materialLocaleOf(String language) {
+  final parts = language.split('-');
+  final locale = Locale(parts.first, parts.length > 1 ? parts[1] : null);
+  final supported = GlobalMaterialLocalizations.delegates.every(
+    (delegate) => delegate.isSupported(locale),
+  );
+  return supported ? locale : const Locale('en');
 }

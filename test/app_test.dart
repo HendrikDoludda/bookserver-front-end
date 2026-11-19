@@ -1,3 +1,4 @@
+import 'package:bookserver/app.dart';
 import 'package:bookserver/data/auth_api.dart';
 import 'package:bookserver/data/session.dart';
 import 'package:bookserver/i18n/catalog.dart';
@@ -79,12 +80,71 @@ void main() {
       expect(find.text(english.text('login.sign_in')), findsNothing);
       expect(tester.widget<Title>(find.byType(Title)).title, 'Bücherserver');
       expect(
+        MaterialLocalizations.of(tester.element(find.text('Willkommen zurück')))
+            .backButtonTooltip,
+        'Zurück',
+        reason: "Material's texts switch with the catalog",
+      );
+      expect(
         find.text(english.text('login.username_or_email')),
         findsOneWidget,
         reason: "a text the server's catalog lacks stays the built-in English",
       );
     },
   );
+
+  group("Material's own texts", () {
+    /// Starts the app on the address screen with a catalog in [language], and answers a context on
+    /// that screen.
+    Future<BuildContext> startIn(WidgetTester tester, String language) async {
+      await pumpApp(
+        tester,
+        catalog: Catalog.fromJson(
+          <String, Object?>{},
+          language: language,
+          fallback: english,
+        ),
+        store: MemorySessionStore(),
+        server: bookServer(),
+      );
+      return tester.element(find.text(english.text('server.title')));
+    }
+
+    test(
+      "follow the catalog's language where material_ui has it, else English",
+      () {
+        expect(materialLocaleOf('de'), const Locale('de'));
+        expect(materialLocaleOf('en'), const Locale('en'));
+        expect(materialLocaleOf('pt-BR'), const Locale('pt', 'BR'));
+        expect(materialLocaleOf('qaa'), const Locale('en'));
+      },
+    );
+
+    testWidgets('are German with a German catalog', (tester) async {
+      final screen = await startIn(tester, 'de');
+
+      expect(Localizations.localeOf(screen), const Locale('de'));
+      final texts = MaterialLocalizations.of(screen);
+      expect(texts.backButtonTooltip, 'Zurück');
+      expect(texts.pasteButtonLabel, 'Einsetzen');
+    });
+
+    testWidgets('stay English for a language material_ui lacks', (
+      tester,
+    ) async {
+      final screen = await startIn(tester, 'qaa');
+
+      expect(Localizations.localeOf(screen), const Locale('en'));
+      expect(MaterialLocalizations.of(screen).backButtonTooltip, 'Back');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('turn the layout right-to-left for Arabic', (tester) async {
+      final screen = await startIn(tester, 'ar');
+
+      expect(Directionality.of(screen), TextDirection.rtl);
+    });
+  });
 
   testWidgets('follows the platform into dark mode', (tester) async {
     tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
