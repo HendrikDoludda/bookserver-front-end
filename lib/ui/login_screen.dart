@@ -6,6 +6,7 @@ import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/error_text.dart';
+import 'package:bookserver/ui/forgot_password_screen.dart';
 import 'package:bookserver/ui/form_page.dart';
 import 'package:bookserver/ui/login_code_screen.dart';
 import 'package:bookserver/ui/sign_up_screen.dart';
@@ -40,6 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
   late final _typed = Listenable.merge([_name, _password]);
   var _busy = false;
   late String? _messageKey = widget.endedKey;
+  String? _noticeKey;
 
   @override
   void dispose() {
@@ -59,6 +61,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _busy = true;
       _messageKey = null;
+      _noticeKey = null;
     });
     try {
       final result = await widget.session.logIn(
@@ -99,10 +102,29 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  /// Opens the password reset; once it has changed the password, fills in its email address and
+  /// says so.
+  Future<void> _resetPassword() async {
+    final email = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(session: widget.session),
+      ),
+    );
+    if (email != null && mounted) {
+      _name.text = email;
+      _password.clear();
+      setState(() {
+        _messageKey = null;
+        _noticeKey = 'password_reset.done';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final messageKey = _messageKey;
+    final noticeKey = _noticeKey;
     return FormPage(
       children: [
         Text(context.t('login.title'), style: theme.textTheme.headlineSmall),
@@ -149,6 +171,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
           ),
         ),
+        if (noticeKey != null) Text(context.t(noticeKey)),
         if (messageKey != null)
           Text(
             context.t(messageKey),
@@ -162,6 +185,10 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         if (_busy) const LinearProgressIndicator(),
+        TextButton(
+          onPressed: _busy ? null : _resetPassword,
+          child: Text(context.t('login.forgot_password')),
+        ),
         TextButton(
           onPressed: _busy
               ? null

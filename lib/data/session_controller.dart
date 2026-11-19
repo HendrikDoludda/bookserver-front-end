@@ -182,6 +182,28 @@ class SessionController extends ChangeNotifier {
     return _auth(connection.server).resendVerification(usernameOrEmail);
   }
 
+  /// Asks the server to mail a password-reset code to [email].
+  Future<void> requestPasswordReset(String email) {
+    final connection = _connection ?? (throw StateError('No server to ask.'));
+    return _auth(connection.server).requestPasswordReset(email);
+  }
+
+  /// Sets a new password with the mailed [code]. It signs nobody in: the login comes after.
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+    required String newPasswordRepeat,
+  }) {
+    final connection = _connection ?? (throw StateError('No server to ask.'));
+    return _auth(connection.server).resetPassword(
+      email: email,
+      code: code,
+      newPassword: newPassword,
+      newPasswordRepeat: newPasswordRepeat,
+    );
+  }
+
   Future<void> _signIn(
     StoredConnection connection,
     SessionTokens tokens,

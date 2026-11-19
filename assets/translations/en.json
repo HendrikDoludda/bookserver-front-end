@@ -57,6 +57,7 @@
   "login": {
     "change_server": "Change server",
     "create_account": "Create an account",
+    "forgot_password": "Forgot your password?",
     "password": "Password",
     "sign_in": "Sign in",
     "title": "Sign in",
@@ -70,6 +71,20 @@
     "title": "Two-factor authentication",
     "use_app_code": "Use the authenticator app instead",
     "use_recovery_code": "Use a recovery code instead"
+  },
+  "password_reset": {
+    "code": "Code",
+    "done": "Your password is changed. Sign in with the new one.",
+    "email": "Email address",
+    "explanation": "Enter your account's email address. We'll send you a code to set a new password.",
+    "new_explanation": "If an account uses this address, a code is on its way. Enter it with your new password.",
+    "new_password": "New password",
+    "new_password_repeat": "Repeat the new password",
+    "new_title": "Set a new password",
+    "password_rule": "At least 12 characters.",
+    "send": "Send code",
+    "submit": "Change password",
+    "title": "Reset your password"
   },
   "reader": {
     "open_failed": "This book can't be opened.",

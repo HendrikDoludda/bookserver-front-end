@@ -718,6 +718,24 @@ void main() {
     expect(server.countOf('/api/v1/auth/verify_email/resend'), 1);
     expect(session.stage, isA<LoggedOut>());
   });
+
+  test('a password reset asks the server and signs nobody in', () async {
+    final session = controller();
+    await session.useServer(_address);
+
+    await session.requestPasswordReset('alice@example.com');
+    await session.resetPassword(
+      email: 'alice@example.com',
+      code: 'ABCD2345',
+      newPassword: 'a new password 123',
+      newPasswordRepeat: 'a new password 123',
+    );
+
+    expect(server.countOf('/api/v1/auth/password_reset'), 1);
+    expect(server.countOf('/api/v1/auth/password_reset/confirm'), 1);
+    expect(store.connection?.tokens, isNull);
+    expect(session.stage, isA<LoggedOut>());
+  });
 }
 
 Matcher _addressProblem(AddressProblem problem) =>
@@ -772,8 +790,10 @@ class _BookServer {
         return signUpAnswer ?? jsonAnswer({'status': 'ok', ..._issue()});
       case '/api/v1/auth/verify_email':
         return jsonAnswer({'status': 'ok', ..._issue()});
-      case '/api/v1/auth/verify_email/resend':
+      case '/api/v1/auth/verify_email/resend' || '/api/v1/auth/password_reset':
         return http.Response('', 202);
+      case '/api/v1/auth/password_reset/confirm':
+        return http.Response('', 200);
       case '/api/v1/auth/login/totp' || '/api/v1/auth/login/recovery_code':
         if (_bearer(request) != 'challenge-1') {
           return jsonAnswer({'error': 'unauthorized'}, 401);

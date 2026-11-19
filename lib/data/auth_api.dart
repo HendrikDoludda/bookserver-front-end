@@ -186,6 +186,33 @@ class AuthApi {
     );
   }
 
+  /// Asks for a code to reset the password of the account with [email]. The answer is the same
+  /// whether or not such an account exists.
+  Future<void> requestPasswordReset(String email) async {
+    await _client.postJson(
+      '/api/v1/auth/password_reset',
+      body: {'email': email},
+    );
+  }
+
+  /// Sets a new password with the mailed [code]; the account's sessions end everywhere.
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+    required String newPasswordRepeat,
+  }) async {
+    await _client.postJson(
+      '/api/v1/auth/password_reset/confirm',
+      body: {
+        'email': email,
+        'code': code,
+        'new_password': newPassword,
+        'new_password_repeat': newPasswordRepeat,
+      },
+    );
+  }
+
   /// Finishes a login that answered [LoginTotpRequired], with a code from the authenticator app
   /// or, when [recoveryCode], one of the recovery codes.
   Future<SessionTokens> logInWithCode(

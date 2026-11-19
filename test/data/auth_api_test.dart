@@ -381,6 +381,58 @@ void main() {
     expect(jsonDecode(request.body), {'username_or_email': 'alice'});
   });
 
+  test('requestPasswordReset sends the address and takes the 202', () async {
+    final server = FakeServer((_) async => http.Response('', 202));
+
+    await apiFor(server).requestPasswordReset('alice@example.com');
+
+    final request = server.requests.single;
+    expect(request.method, 'POST');
+    expect(request.url.path, '/api/v1/auth/password_reset');
+    expect(request.headers.containsKey('authorization'), isFalse);
+    expect(jsonDecode(request.body), {'email': 'alice@example.com'});
+  });
+
+  group('resetPassword', () {
+    Future<void> reset(AuthApi api) => api.resetPassword(
+      email: 'alice@example.com',
+      code: 'ABCD2345',
+      newPassword: 'a new password 123',
+      newPasswordRepeat: 'a new password 123',
+    );
+
+    test('sends the address, the code and the password twice', () async {
+      final server = FakeServer((_) async => http.Response('', 200));
+
+      await reset(apiFor(server));
+
+      final request = server.requests.single;
+      expect(request.url.path, '/api/v1/auth/password_reset/confirm');
+      expect(jsonDecode(request.body), {
+        'email': 'alice@example.com',
+        'code': 'ABCD2345',
+        'new_password': 'a new password 123',
+        'new_password_repeat': 'a new password 123',
+      });
+    });
+
+    test('passes a refusal on as an ApiException', () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer({'error': 'invalid_or_expired_code'}, 400),
+      );
+      await expectLater(
+        reset(apiFor(server)),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.key,
+            'key',
+            'invalid_or_expired_code',
+          ),
+        ),
+      );
+    });
+  });
+
   group('refresh', () {
     test('sends the refresh token and reads the new tokens', () async {
       final server = FakeServer((_) async => jsonAnswer(sessionJson));
