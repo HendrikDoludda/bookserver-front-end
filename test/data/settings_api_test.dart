@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:bookserver/data/api_client.dart';
 import 'package:bookserver/data/settings_api.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,5 +41,31 @@ void main() {
         reason: '$answer',
       );
     }
+  });
+
+  test('setLanguage puts the code, or null for the device', () async {
+    for (final code in ['de', null]) {
+      final server = FakeServer((_) async => jsonAnswer({'locale': code}));
+
+      await apiFor(server).setLanguage('session-1', code);
+
+      final request = server.requests.single;
+      expect(request.method, 'PUT');
+      expect(request.url.path, '/api/v1/account/settings');
+      expect(request.headers['authorization'], 'Bearer session-1');
+      expect(jsonDecode(request.body), {'locale': code});
+    }
+  });
+
+  test('setLanguage passes a refusal on', () async {
+    final server = FakeServer(
+      (_) async => jsonAnswer({'error': 'invalid_locale'}, 400),
+    );
+    await expectLater(
+      apiFor(server).setLanguage('session-1', 'fr'),
+      throwsA(
+        isA<ApiException>().having((e) => e.key, 'key', 'invalid_locale'),
+      ),
+    );
   });
 }

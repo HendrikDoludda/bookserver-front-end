@@ -1,17 +1,20 @@
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/cover.dart';
 import 'package:bookserver/ui/cover_grid.dart';
 import 'package:bookserver/ui/list_screen.dart';
 import 'package:bookserver/ui/series_screen.dart';
+import 'package:bookserver/ui/settings_screen.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// The first screen once signed in: the server's libraries.
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key, required this.session});
+  const HomeScreen({super.key, required this.session, required this.catalogs});
 
   final SessionController session;
+  final CatalogController catalogs;
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +26,16 @@ class HomeScreen extends StatelessWidget {
         (api, sessionToken) => BrowseApi(api).libraries(sessionToken),
       ),
       actions: [
+        IconButton(
+          icon: const Icon(Icons.settings),
+          tooltip: context.t('home.settings'),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  SettingsScreen(session: session, catalogs: catalogs),
+            ),
+          ),
+        ),
         IconButton(
           icon: const Icon(Icons.logout),
           tooltip: context.t('home.sign_out'),

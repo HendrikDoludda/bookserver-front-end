@@ -78,7 +78,10 @@ class _BookserverAppState extends State<BookserverApp> {
                   server: server,
                   endedKey: endedKey,
                 ),
-                LoggedIn() => HomeScreen(session: widget.session),
+                LoggedIn() => HomeScreen(
+                  session: widget.session,
+                  catalogs: widget.catalogs,
+                ),
               },
             ),
           ),

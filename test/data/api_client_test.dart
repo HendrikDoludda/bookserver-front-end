@@ -39,6 +39,24 @@ void main() {
       expect(request.followRedirects, isFalse);
     });
 
+    test('putJson sends a PUT the same way', () async {
+      final server = FakeServer((_) async => jsonAnswer({'locale': null}));
+
+      final answer = await clientFor(server).putJson(
+        '/api/v1/account/settings',
+        body: {'locale': null},
+        bearer: 'token-1',
+      );
+
+      final request = server.requests.single;
+      expect(request.method, 'PUT');
+      expect(request.url.path, '/api/v1/account/settings');
+      expect(request.headers['authorization'], 'Bearer token-1');
+      expect(request.headers['content-type'], 'application/json');
+      expect(utf8.decode(request.bodyBytes), '{"locale":null}');
+      expect(answer, {'locale': null});
+    });
+
     test('without a token or a body sends neither', () async {
       final server = FakeServer((_) async => jsonAnswer([]));
 

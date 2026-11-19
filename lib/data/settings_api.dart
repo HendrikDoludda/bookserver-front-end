@@ -17,4 +17,13 @@ class SettingsApi {
     }
     throw const FormatException('Not the settings.');
   }
+
+  /// Makes [code] the user's language; `null` leaves the choice to each device.
+  Future<void> setLanguage(String sessionToken, String? code) async {
+    await _client.putJson(
+      '/api/v1/account/settings',
+      body: {'locale': code},
+      bearer: sessionToken,
+    );
+  }
 }

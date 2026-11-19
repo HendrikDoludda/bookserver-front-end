@@ -51,6 +51,7 @@
   "home": {
     "empty": "No libraries yet. They appear once an admin scans the book folders.",
     "reload": "Reload",
+    "settings": "Settings",
     "sign_out": "Sign out",
     "title": "Libraries"
   },
@@ -102,6 +103,13 @@
     "invalid_address": "This doesn't look like a server address.",
     "not_a_bookserver": "There's no book server at this address.",
     "title": "Connect to your book server"
+  },
+  "settings": {
+    "device_language": "Device language",
+    "device_language_explanation": "Follows your device's language where the server offers it.",
+    "language": "Language",
+    "reload": "Reload",
+    "title": "Settings"
   },
   "sign_up": {
     "email": "Email address",

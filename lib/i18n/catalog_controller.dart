@@ -99,6 +99,35 @@ class CatalogController extends ChangeNotifier {
     _follow();
   }
 
+  /// Picks the language now, as a change of server or sign-in would: after the user's language
+  /// setting changed. Completes once the new catalog is on screen, or the pick gave up.
+  Future<void> pickAgain() => _pick(_where);
+
+  /// The language "Device language" would show: the device's where the server offers it, else the
+  /// server's default.
+  String? deviceLanguage(List<OfferedLanguage> offered) =>
+      pickLanguage(offered, device: _deviceLocales());
+
+  /// The catalog in [language]: the one on screen when it's in that language, else the session's
+  /// server's, with the built-in English behind it. When that fails, the one on screen.
+  Future<Catalog> catalogIn(String language) async {
+    final shown = catalog;
+    final server = _where.$1;
+    if (shown.language == language || server == null) {
+      return shown;
+    }
+    try {
+      final answer = await LocalesApi(ApiClient(_client, server))
+          .texts(language);
+      if (answer case CatalogTexts(:final texts)) {
+        return Catalog.fromJson(texts, language: language, fallback: _builtIn);
+      }
+    } on Exception {
+      // The texts stay in the language on screen.
+    }
+    return shown;
+  }
+
   @override
   void dispose() {
     _session.removeListener(_follow);

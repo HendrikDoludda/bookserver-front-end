@@ -4,13 +4,24 @@ import 'package:bookserver/data/api_client.dart';
 
 /// A language the server offers, as `GET /api/v1/locales` lists it.
 class OfferedLanguage {
-  const OfferedLanguage({required this.code, required this.isDefault});
+  const OfferedLanguage({
+    required this.code,
+    required this.displayName,
+    required this.isDefault,
+    this.icon,
+  });
 
   /// Such as `de` or `pt-BR`.
   final String code;
 
+  /// The language's name in itself: `Deutsch`, not `German`.
+  final String displayName;
+
   /// Whether the server shows it when nothing else picks a language.
   final bool isDefault;
+
+  /// An emoji the admin chose for it, if any.
+  final String? icon;
 }
 
 /// The server's translation catalog: the languages it offers and each one's texts. Neither needs a
@@ -29,8 +40,18 @@ class LocalesApi {
     return [
       for (final entry in json)
         switch (entry) {
-          {'code': String code, 'is_default': bool isDefault} =>
-            OfferedLanguage(code: code, isDefault: isDefault),
+          {
+            'code': String code,
+            'display_name': String displayName,
+            'icon': String? icon,
+            'is_default': bool isDefault,
+          } =>
+            OfferedLanguage(
+              code: code,
+              displayName: displayName,
+              isDefault: isDefault,
+              icon: icon,
+            ),
           _ => throw const FormatException('Not a language.'),
         },
     ];

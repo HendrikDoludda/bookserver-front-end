@@ -21,7 +21,7 @@ import '../support/screens.dart';
 void main() {
   group('pickLanguage', () {
     OfferedLanguage offer(String code, {bool isDefault = false}) =>
-        OfferedLanguage(code: code, isDefault: isDefault);
+        OfferedLanguage(code: code, displayName: code, isDefault: isDefault);
     final englishAndGerman = [offer('en', isDefault: true), offer('de')];
 
     test("the user's setting while the server offers it", () {
@@ -207,6 +207,89 @@ void main() {
 
       expect(catalogs.catalog.language, 'de');
     });
+
+    test('pickAgain picks now, with the setting as it is now', () async {
+      final session = await sessionOn(signedInStore());
+      final catalogs = await following(session);
+      await pumpEventQueue();
+      expect(catalogs.catalog.language, 'en');
+
+      server.setting = 'de';
+      await catalogs.pickAgain();
+
+      expect(
+        catalogs.catalog.language,
+        'de',
+        reason: 'the new catalog is on screen once pickAgain completes',
+      );
+    });
+
+    test('deviceLanguage is what "Device language" would show', () async {
+      const offered = [
+        OfferedLanguage(code: 'en', displayName: 'English', isDefault: true),
+        OfferedLanguage(code: 'de', displayName: 'Deutsch', isDefault: false),
+      ];
+      final session = await sessionOn(
+        MemorySessionStore()..connection = signedOut(),
+      );
+
+      final austrian = await following(
+        session,
+        device: const [Locale('de', 'AT')],
+      );
+      expect(austrian.deviceLanguage(offered), 'de');
+      final french = await following(session, device: const [Locale('fr')]);
+      expect(
+        french.deviceLanguage(offered),
+        'en',
+        reason: "the server's default",
+      );
+    });
+
+    test(
+      "catalogIn: the catalog on screen in its language, else the server's",
+      () async {
+        final session = await sessionOn(
+          MemorySessionStore()..connection = signedOut(),
+        );
+        final catalogs = await following(session);
+        await pumpEventQueue();
+        final requests = server.fake.requests.length;
+
+        expect(await catalogs.catalogIn('en'), same(catalogs.catalog));
+        expect(server.fake.requests, hasLength(requests));
+
+        final german = await catalogs.catalogIn('de');
+        expect(german.language, 'de');
+        expect(german.text('login.title'), 'Anmelden');
+        expect(
+          german.text('login.subtitle'),
+          'Built in',
+          reason: 'with the built-in English behind it',
+        );
+        expect(server.paths.last, '/api/v1/locales/de/translations');
+        expect(
+          catalogs.catalog.language,
+          'en',
+          reason: 'the catalog on screen stays',
+        );
+      },
+    );
+
+    test(
+      'catalogIn gives the catalog on screen when the server fails',
+      () async {
+        server.answers['/api/v1/locales/de/translations'] = () async =>
+            jsonAnswer({'error': 'internal_error'}, 500);
+        final session = await sessionOn(
+          MemorySessionStore()..connection = signedOut(),
+        );
+        final catalogs = await following(session);
+        await pumpEventQueue();
+
+        expect(await catalogs.catalogIn('de'), same(catalogs.catalog));
+      },
+    );
 
     test('signing in picks again, with the setting', () async {
       server.setting = 'de';

@@ -42,8 +42,16 @@ void main() {
       final languages = await apiFor(server).languages();
 
       expect(
-        [for (final language in languages) (language.code, language.isDefault)],
-        [('en', true), ('pt-BR', false)],
+        [
+          for (final language in languages)
+            (
+              language.code,
+              language.displayName,
+              language.icon,
+              language.isDefault,
+            ),
+        ],
+        [('en', 'English', null, true), ('pt-BR', 'Português', '📗', false)],
       );
       expectPublicGet(server, '/api/v1/locales');
     });
