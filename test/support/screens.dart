@@ -3,6 +3,7 @@ import 'package:bookserver/data/auth_api.dart';
 import 'package:bookserver/data/session.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/cover_grid.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -95,13 +96,16 @@ Future<void> finishTransition(WidgetTester tester) async {
   await tester.pump(const Duration(seconds: 1));
 }
 
-/// Starts the whole app as `main()` does, on [store]'s record and [server].
+/// Starts the whole app as `main()` does, on [store]'s record and [server]. The app shows [catalog]
+/// throughout, unless [followCatalog]: then [catalog] is the built-in English and the app follows
+/// the session to [server]'s catalog, whose requests the test answers.
 Future<SessionController> pumpApp(
   WidgetTester tester, {
   required Catalog catalog,
   required MemorySessionStore store,
   required FakeServer server,
   bool allowHttp = true,
+  bool followCatalog = false,
 }) async {
   final session = SessionController(
     store: store,
@@ -110,7 +114,15 @@ Future<SessionController> pumpApp(
     platform: 'macos',
   );
   await session.load();
-  await tester.pumpWidget(BookserverApp(catalog: catalog, session: session));
+  final catalogs = CatalogController(
+    builtIn: catalog,
+    client: server.client,
+    session: session,
+  );
+  if (followCatalog) {
+    catalogs.load();
+  }
+  await tester.pumpWidget(BookserverApp(catalogs: catalogs, session: session));
   return session;
 }
 

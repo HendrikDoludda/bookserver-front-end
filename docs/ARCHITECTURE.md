@@ -1,10 +1,10 @@
 # Architecture
 
 ## Where things live
-- `lib/main.dart` — start-up: loads the built-in English and the stored connection, then runs the app.
-- `lib/app.dart` — the root: the catalog and the theme above every screen, the screen for the session's stage, and the navigator the other screens are pushed onto.
-- `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept), `session_controller.dart` (its stages and rules) and `session_http_client.dart` (the session as an `http.Client`, for a package that sends its own requests); and `epub_book.dart`, an EPUB's chapters — split into blocks of HTML — and files, read from its archive, and `epub_layout.dart`, a fixed-layout page as data — its size, background and placed lines of text, from its XHTML and the book's CSS.
-- `lib/i18n/catalog.dart` — the catalog in its language, `CatalogScope`, `context.t()` and `context.plural()`.
+- `lib/main.dart` — start-up: loads the built-in English and the stored connection, sets the catalog following the session, then runs the app.
+- `lib/app.dart` — the root: `CatalogController`'s catalog and the theme above every screen, the screen for the session's stage, and the navigator the other screens are pushed onto.
+- `lib/data/` — talking to the server and keeping the session, no widgets: `server_address.dart` (what counts as a server address), `api_client.dart` (every request), one file per API area (`auth_api.dart`, `browse_api.dart`, `locales_api.dart` — the languages on offer and their texts, `settings_api.dart` — the user's own settings), and the session — `session.dart` (the stored record), `session_store.dart` (where it's kept), `session_controller.dart` (its stages and rules) and `session_http_client.dart` (the session as an `http.Client`, for a package that sends its own requests); and `epub_book.dart`, an EPUB's chapters — split into blocks of HTML — and files, read from its archive, and `epub_layout.dart`, a fixed-layout page as data — its size, background and placed lines of text, from its XHTML and the book's CSS.
+- `lib/i18n/catalog.dart` — the catalog in its language with a fallback for the keys it lacks, `CatalogScope`, `context.t()` and `context.plural()`; `catalog_controller.dart` — which language the app shows (`pickLanguage`) and its catalog from the server (`CatalogController`).
 - `lib/ui/` — the screens (`server_screen.dart`, `login_screen.dart`, `home_screen.dart`, `series_screen.dart`, `books_screen.dart`), the frame of a screen that shows a list from the server (`list_screen.dart`), a message in the middle of a screen (`notice.dart`), the layout of a one-form screen (`form_page.dart`), the text a failure shows (`error_text.dart`), images from the server (`server_image.dart`) and from inside an EPUB (`epub_image.dart`), the covers made of them (`cover.dart`) and the cards and grid that show them (`cover_grid.dart`), and the design tokens (`theme.dart`).
 - `lib/ui/readers/` — opening a book in the reader for its format (`open_book.dart`) and the readers: `page_reader.dart` for CBZ and image-folder books, `pdf_reader.dart` for PDFs, `epub_reader.dart` for EPUBs, `fixed_layout_page.dart` for a fixed-layout EPUB's pages; and the page turning a reader shows its pages in (`page_turner.dart`).
 - `assets/translations/en.json` — the built-in English: the server's answer to `GET /api/v1/locales/en/translations`, refreshed with the command in [commands.md](commands.md).
@@ -29,6 +29,12 @@
 - One refresh at a time: a call that needs one while another runs waits for it.
 - Only a refused refresh, a second 401 or signing out ends a session; a network failure keeps it.
 - Release builds use only `https://` server addresses, typed or stored; `kDebugMode` decides.
+
+## Catalog
+- The catalog on screen is `CatalogController`'s: the built-in English until the server's catalog in the picked language arrives. It picks again whenever the session's server or sign-in changes; nothing waits for the server.
+- The language is the user's setting while the server offers it, else the device's languages in order — the same language and region, else the language, else a code of that language — else the server's default (`pickLanguage`).
+- A catalog from the server falls back key by key to the built-in English.
+- A failed pick — no connection, a refusal, a broken answer, an ended session — keeps the catalog on screen; a pick a newer one overtook drops its answer.
 
 ## Navigation
 - A screen opens with `Navigator.push` and a `MaterialPageRoute` on the app's one navigator; no router package.
@@ -56,7 +62,7 @@
 - The server is faked with `FakeServer` (`test/support/fake_server.dart`), built on `package:http`'s `MockClient` — no mocking library; `StreamingFakeServer` for an answer whose body arrives in chunks.
 - Secure storage is faked with `MemorySessionStore`; `SecureSessionStore` itself is tested over `FlutterSecureStorage.setMockInitialValues`.
 - Code that depends on the time takes a clock (`DateTime Function()`), so tests never wait.
-- Screen tests start the whole app as `main()` does, over the fakes (`pumpApp` in `test/support/screens.dart`), and find texts through the catalog, never as literals.
+- Screen tests start the whole app as `main()` does, over the fakes (`pumpApp` in `test/support/screens.dart`), and find texts through the catalog, never as literals. The catalog stays the one given unless the test passes `followCatalog: true` and answers the catalog's requests, so the other tests' requests stay their own.
 - A widget test answers every request it leaves waiting before it ends: `ApiClient`'s timeout timer must not outlive the test.
 - An image test decodes real PNG bytes (`onePixelPng`, `test/support/images.dart`); a widget that loads one is pumped inside `tester.runAsync`, where the decoding can finish.
 - Every catalog key written in `lib/` has a built-in English text — a plural key its `.other` form; `test/i18n/keys_in_code_test.dart` fails otherwise.

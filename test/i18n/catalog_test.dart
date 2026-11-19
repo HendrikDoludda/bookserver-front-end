@@ -185,6 +185,73 @@ void main() {
     });
   });
 
+  group('fallback', () {
+    final english = Catalog.fromJson({
+      'login': {'title': 'Sign in', 'subtitle': 'Welcome back'},
+      'reader': {'page_of': 'Page {page} of {count}'},
+      'browse': {
+        'book_count.one': '{count} book',
+        'book_count.other': '{count} books',
+      },
+    }, language: 'en');
+    final german = Catalog.fromJson(
+      {
+        'login': {'title': 'Anmelden'},
+      },
+      language: 'de',
+      fallback: english,
+    );
+
+    test("the catalog's own text wins over the fallback's", () {
+      expect(german.text('login.title'), 'Anmelden');
+    });
+
+    test('a key the catalog lacks comes from the fallback', () {
+      expect(german.text('login.subtitle'), 'Welcome back');
+      expect(german.has('login.subtitle'), isTrue);
+      expect(
+        german.text('reader.page_of', {'page': 2, 'count': 9}),
+        'Page 2 of 9',
+        reason: "the values fill the fallback's text",
+      );
+    });
+
+    test("a plural the catalog lacks takes the fallback's form, by the fallback's rules", () {
+      final french = Catalog.fromJson(
+        <String, Object?>{},
+        language: 'fr',
+        fallback: english,
+      );
+      expect(
+        french.plural('browse.book_count', 0),
+        '0 books',
+        reason: "French rules would pick one for 0; the English text needs English's",
+      );
+      expect(french.plural('browse.book_count', 1), '1 book');
+    });
+
+    test('a plural the catalog has stays its own', () {
+      final translated = Catalog.fromJson(
+        {
+          'browse': {'book_count.other': '{count} Bücher'},
+        },
+        language: 'de',
+        fallback: english,
+      );
+      expect(
+        translated.plural('browse.book_count', 1),
+        '1 Bücher',
+        reason: "its other form, not the fallback's one form",
+      );
+    });
+
+    test('a key in neither answers the key itself', () {
+      expect(german.text('nope.title'), 'nope.title');
+      expect(german.has('nope.title'), isFalse);
+      expect(german.plural('browse.nope', 2), 'browse.nope');
+    });
+  });
+
   group('fromJson', () {
     test('refuses anything but an object of namespaces of texts', () {
       final shapes = <Object?>[

@@ -35,6 +35,57 @@ void main() {
     );
   });
 
+  testWidgets(
+    "switches to the server's catalog in the device's language once it arrives",
+    (tester) async {
+      tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+      addTearDown(tester.platformDispatcher.clearLocalesTestValue);
+      final server = bookServer(
+        (request) async => switch (request.url.pathSegments) {
+          ['api', 'v1', 'locales'] => jsonAnswer([
+            {
+              'code': 'en',
+              'display_name': 'English',
+              'icon': null,
+              'is_default': true,
+            },
+            {
+              'code': 'de',
+              'display_name': 'Deutsch',
+              'icon': null,
+              'is_default': false,
+            },
+          ]),
+          ['api', 'v1', 'locales', 'de', 'translations'] => jsonAnswer({
+            'app': {'name': 'Bücherserver'},
+            'login': {'title': 'Willkommen zurück', 'sign_in': 'Anmelden'},
+          }),
+          _ => notFound(),
+        },
+      );
+
+      await pumpApp(
+        tester,
+        catalog: english,
+        store: MemorySessionStore()
+          ..connection = StoredConnection(server: testOrigin),
+        server: server,
+        followCatalog: true,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Willkommen zurück'), findsOneWidget);
+      expect(find.text('Anmelden'), findsOneWidget);
+      expect(find.text(english.text('login.sign_in')), findsNothing);
+      expect(tester.widget<Title>(find.byType(Title)).title, 'Bücherserver');
+      expect(
+        find.text(english.text('login.username_or_email')),
+        findsOneWidget,
+        reason: "a text the server's catalog lacks stays the built-in English",
+      );
+    },
+  );
+
   testWidgets('follows the platform into dark mode', (tester) async {
     tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
     addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);

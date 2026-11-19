@@ -7,17 +7,22 @@ import 'package:intl/intl.dart';
 /// The app's texts by namespace and name, in the shape of
 /// `GET /api/v1/locales/{code}/translations`.
 class Catalog {
-  Catalog._(this.language, this._texts);
+  Catalog._(this.language, this._texts, this._fallback);
 
-  /// Reads a translations answer in [language]; any other shape throws a [FormatException].
-  factory Catalog.fromJson(Object? json, {required String language}) {
+  /// Reads a translations answer in [language]; any other shape throws a [FormatException]. A key
+  /// the answer lacks is looked up in [fallback] before the key itself is answered.
+  factory Catalog.fromJson(
+    Object? json, {
+    required String language,
+    Catalog? fallback,
+  }) {
     if (json is! Map<String, Object?>) {
       throw const FormatException('A catalog is an object of namespaces.');
     }
     return Catalog._(language, {
       for (final MapEntry(key: namespace, value: texts) in json.entries)
         namespace: _textsOf(namespace, texts),
-    });
+    }, fallback);
   }
 
   static const builtInEnglishAsset = 'assets/translations/en.json';
@@ -31,17 +36,24 @@ class Catalog {
   final String language;
 
   final Map<String, Map<String, String>> _texts;
+  final Catalog? _fallback;
 
-  bool has(String key) => _find(key) != null;
+  bool has(String key) => _find(key) != null || (_fallback?.has(key) ?? false);
 
-  /// The text for `namespace.name`, or the key itself when the catalog lacks it, with each
+  /// The text for `namespace.name` — else the fallback's, else the key itself — with each
   /// `{placeholder}` filled from [values]. A placeholder without a value stays as it is.
-  String text(String key, [Map<String, Object> values = const {}]) =>
-      _fill(_find(key) ?? key, values);
+  String text(String key, [Map<String, Object> values = const {}]) {
+    final text = _find(key);
+    if (text == null) {
+      return _fallback?.text(key, values) ?? key;
+    }
+    return _fill(text, values);
+  }
 
   /// The text for [count] of `namespace.name`: the form the language's plural rules pick —
-  /// `name.one`, `name.few`, `name.other` … — else `name.other`, else the key itself. `{count}`
-  /// is filled with [count], the other placeholders from [values].
+  /// `name.one`, `name.few`, `name.other` … — else `name.other`. Without either, the fallback's
+  /// form by the fallback's own rules, else the key itself. `{count}` is filled with [count], the
+  /// other placeholders from [values].
   String plural(
     String key,
     int count, [
@@ -60,7 +72,10 @@ class Catalog {
       // its `one` form for 0.
       useExplicitNumberCases: false,
     );
-    final text = _find('$key.$form') ?? _find('$key.other') ?? key;
+    final text = _find('$key.$form') ?? _find('$key.other');
+    if (text == null) {
+      return _fallback?.plural(key, count, values) ?? key;
+    }
     return _fill(text, {...values, 'count': count});
   }
 

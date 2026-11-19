@@ -1,21 +1,22 @@
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/home_screen.dart';
 import 'package:bookserver/ui/login_screen.dart';
 import 'package:bookserver/ui/server_screen.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// The root: the catalog and the theme above every screen, and the screen for the session's
-/// stage, with nothing pushed on top of it once the session has ended.
+/// The root: the catalog [catalogs] holds and the theme above every screen, and the screen for
+/// the session's stage, with nothing pushed on top of it once the session has ended.
 class BookserverApp extends StatefulWidget {
   const BookserverApp({
     super.key,
-    required this.catalog,
+    required this.catalogs,
     required this.session,
   });
 
-  final Catalog catalog;
+  final CatalogController catalogs;
   final SessionController session;
 
   @override
@@ -45,24 +46,27 @@ class _BookserverAppState extends State<BookserverApp> {
 
   @override
   Widget build(BuildContext context) {
-    return CatalogScope(
-      catalog: widget.catalog,
-      child: MaterialApp(
-        navigatorKey: _navigator,
-        onGenerateTitle: (context) => context.t('app.name'),
-        theme: lightTheme,
-        darkTheme: darkTheme,
-        home: ListenableBuilder(
-          listenable: widget.session,
-          builder: (context, _) => switch (widget.session.stage) {
-            NeedsServer() => ServerScreen(session: widget.session),
-            LoggedOut(:final server, :final endedKey) => LoginScreen(
-              session: widget.session,
-              server: server,
-              endedKey: endedKey,
-            ),
-            LoggedIn() => HomeScreen(session: widget.session),
-          },
+    return ListenableBuilder(
+      listenable: widget.catalogs,
+      builder: (context, _) => CatalogScope(
+        catalog: widget.catalogs.catalog,
+        child: MaterialApp(
+          navigatorKey: _navigator,
+          onGenerateTitle: (context) => context.t('app.name'),
+          theme: lightTheme,
+          darkTheme: darkTheme,
+          home: ListenableBuilder(
+            listenable: widget.session,
+            builder: (context, _) => switch (widget.session.stage) {
+              NeedsServer() => ServerScreen(session: widget.session),
+              LoggedOut(:final server, :final endedKey) => LoginScreen(
+                session: widget.session,
+                server: server,
+                endedKey: endedKey,
+              ),
+              LoggedIn() => HomeScreen(session: widget.session),
+            },
+          ),
         ),
       ),
     );
