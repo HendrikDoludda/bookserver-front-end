@@ -1,11 +1,12 @@
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
+import 'package:bookserver/ui/theme.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// A screen of a list from the server: progress while it loads, the reason it didn't load with
 /// Reload under it, a notice when it's empty, and Reload in the app bar unless [reloadInAppBar]
-/// is false.
+/// is false. A [sidebar] sits beside the list in a wide window and over it in a narrow one.
 class ListScreen<T> extends StatefulWidget {
   const ListScreen({
     super.key,
@@ -16,6 +17,7 @@ class ListScreen<T> extends StatefulWidget {
     required this.reloadKey,
     this.reloadInAppBar = true,
     this.actions = const [],
+    this.sidebar,
   });
 
   final String title;
@@ -38,6 +40,10 @@ class ListScreen<T> extends StatefulWidget {
   /// More app bar buttons, after Reload.
   final List<Widget> actions;
 
+  /// A panel beside the list from [Breakpoints.sidebarBeside] wide, shown until its button hides
+  /// it; narrower, a drawer its button opens over the list.
+  final Widget? sidebar;
+
   @override
   State<ListScreen<T>> createState() => _ListScreenState<T>();
 }
@@ -46,6 +52,7 @@ class _ListScreenState<T> extends State<ListScreen<T>> {
   var _loading = true;
   List<T>? _items;
   String? _errorKey;
+  var _sidebarShown = true;
 
   @override
   void initState() {
@@ -82,8 +89,26 @@ class _ListScreenState<T> extends State<ListScreen<T>> {
 
   @override
   Widget build(BuildContext context) {
+    final sidebar = widget.sidebar;
+    final beside =
+        MediaQuery.sizeOf(context).width >= Breakpoints.sidebarBeside;
+    final list = Stack(
+      fit: StackFit.expand,
+      children: [
+        _content(context),
+        if (_loading)
+          const Align(
+            alignment: Alignment.topCenter,
+            child: LinearProgressIndicator(),
+          ),
+      ],
+    );
     return Scaffold(
       appBar: AppBar(
+        leading: sidebar == null ? null : _sidebarButtons(context, beside),
+        leadingWidth: sidebar == null
+            ? null
+            : 2 * kMinInteractiveDimension + Spacing.small,
         title: Text(widget.title),
         actions: [
           if (widget.reloadInAppBar)
@@ -96,19 +121,38 @@ class _ListScreenState<T> extends State<ListScreen<T>> {
           ...widget.actions,
         ],
       ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          _content(context),
-          if (_loading)
-            const Align(
-              alignment: Alignment.topCenter,
-              child: LinearProgressIndicator(),
-            ),
-        ],
-      ),
+      drawer: sidebar != null && !beside ? Drawer(child: sidebar) : null,
+      // Only the button opens the drawer: on iOS a drag from the left edge goes back.
+      drawerEnableOpenDragGesture: false,
+      body: sidebar != null && beside && _sidebarShown
+          ? Row(
+              children: [
+                SizedBox(width: Widths.sidebar, child: sidebar),
+                const VerticalDivider(),
+                Expanded(child: list),
+              ],
+            )
+          : list,
     );
   }
+
+  /// Back, and the sidebar's button beside it: with a drawer, the app bar would otherwise show the
+  /// drawer's button in place of Back.
+  Widget _sidebarButtons(BuildContext context, bool beside) => Row(
+    mainAxisAlignment: MainAxisAlignment.end,
+    children: [
+      if (Navigator.of(context).canPop()) const BackButton(),
+      Builder(
+        builder: (context) => IconButton(
+          icon: const Icon(Icons.menu),
+          tooltip: context.t('menu.libraries'),
+          onPressed: beside
+              ? () => setState(() => _sidebarShown = !_sidebarShown)
+              : () => Scaffold.of(context).openDrawer(),
+        ),
+      ),
+    ],
+  );
 
   Widget _content(BuildContext context) {
     if (_errorKey case final errorKey?) {

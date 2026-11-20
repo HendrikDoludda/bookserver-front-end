@@ -45,6 +45,7 @@ class HomeScreen extends StatelessWidget {
                   session: session,
                   catalogs: catalogs,
                   library: library,
+                  libraries: libraries,
                 ),
               ),
             ),

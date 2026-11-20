@@ -5,22 +5,27 @@ import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/books_screen.dart';
 import 'package:bookserver/ui/cover.dart';
 import 'package:bookserver/ui/cover_grid.dart';
+import 'package:bookserver/ui/library_sidebar.dart';
 import 'package:bookserver/ui/list_screen.dart';
 import 'package:bookserver/ui/user_menu.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// A library's series, by name.
+/// A library's series, by name, with the [libraries] to switch to beside them.
 class SeriesScreen extends StatelessWidget {
   const SeriesScreen({
     super.key,
     required this.session,
     required this.catalogs,
     required this.library,
+    required this.libraries,
   });
 
   final SessionController session;
   final CatalogController catalogs;
   final Library library;
+
+  /// Every library, as the library grid loaded them.
+  final List<Library> libraries;
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +38,12 @@ class SeriesScreen extends StatelessWidget {
             BrowseApi(api).seriesOf(library.id, sessionToken),
       ),
       actions: [UserMenu(session: session, catalogs: catalogs)],
+      sidebar: LibrarySidebar(
+        session: session,
+        catalogs: catalogs,
+        libraries: libraries,
+        current: library,
+      ),
       builder: (context, series) => CoverGrid(
         itemCount: series.length,
         withDetail: true,
@@ -47,6 +58,8 @@ class SeriesScreen extends StatelessWidget {
                 builder: (_) => BooksScreen(
                   session: session,
                   catalogs: catalogs,
+                  library: library,
+                  libraries: libraries,
                   series: one,
                 ),
               ),

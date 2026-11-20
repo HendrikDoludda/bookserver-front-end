@@ -16,6 +16,17 @@ abstract final class Widths {
 
   /// The widest a QR code gets: large enough for a phone camera across a desk.
   static const double qrCode = 240;
+
+  /// The library sidebar beside the content: as wide as Material's drawer, so the list looks the
+  /// same beside the content and over it.
+  static const double sidebar = 304;
+}
+
+/// Window widths at which a layout changes.
+abstract final class Breakpoints {
+  /// From here the library sidebar sits beside the content rather than over it: where
+  /// Material's "expanded" window class starts.
+  static const double sidebarBeside = 840;
 }
 
 /// Text whose characters line up in columns, such as recovery codes.
