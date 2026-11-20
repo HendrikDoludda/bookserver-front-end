@@ -30,6 +30,7 @@
     "invalid_email": "This doesn't look like an email address.",
     "invalid_locale": "This language isn't available.",
     "invalid_or_expired_code": "This code is wrong or has expired.",
+    "invalid_reading_mode": "This reading mode doesn't exist. Updating the app may help.",
     "invalid_request": "The server couldn't read this request. Updating the app may help.",
     "invalid_setup_code": "The setup code is wrong. You find it in the server's log.",
     "invalid_username": "This username can't be used.",
