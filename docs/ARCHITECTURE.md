@@ -68,6 +68,10 @@
 - Services and controllers throw typed exceptions, never text; a screen shows a failure as the text `errorTextKey` picks.
 - Screens catch `Exception`s only: an `Error` is a bug and stays loud.
 
+## Builds
+- An Android release build is signed with the release key `android/key.properties` names; the file and the keystore stay outside git, and without the file a release build stops. One universal APK, for every phone.
+- Each platform's release build and how it reaches a device is in its run doc: [android](run-deploy/android.md), [macos](run-deploy/macos.md).
+
 ## Tests
 - `test/` mirrors `lib/`: `lib/i18n/catalog.dart` is tested in `test/i18n/catalog_test.dart`; shared fakes live in `test/support/`.
 - The server is faked with `FakeServer` (`test/support/fake_server.dart`), built on `package:http`'s `MockClient` — no mocking library; `StreamingFakeServer` for an answer whose body arrives in chunks.
