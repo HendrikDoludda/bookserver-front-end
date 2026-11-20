@@ -14,8 +14,16 @@ void main() {
     english = await Catalog.loadBuiltInEnglish();
   });
 
-  String pageOf(int page, int count) =>
-      english.text('reader.page_of', {'page': page, 'count': count});
+  /// The pages the turner said it landed on, in order.
+  final turns = <int>[];
+  var taps = 0;
+  setUp(() {
+    turns.clear();
+    taps = 0;
+  });
+
+  /// The page on screen, as the turner reported it.
+  int current() => turns.lastOrNull ?? 0;
 
   /// Shows a [PageTurner] of [count] plain boxes, each saying its index; answers every build of a
   /// page as its index and the decode width it was given, in order.
@@ -30,6 +38,8 @@ void main() {
       screen: Scaffold(
         body: PageTurner(
           count: count,
+          onPageChanged: turns.add,
+          onTap: () => taps++,
           pageBuilder: (context, index, decodeWidth) {
             builds.add((index, decodeWidth));
             return SizedBox.expand(child: Center(child: Text('box $index')));
@@ -51,7 +61,7 @@ void main() {
     final builds = await showTurner(tester);
 
     expect(find.text('box 0'), findsOneWidget);
-    expect(find.text(pageOf(1, 3)), findsOneWidget);
+    expect(current(), 0);
     expect({for (final (index, _) in builds) index}, {0, 1});
   });
 
@@ -61,21 +71,18 @@ void main() {
     await showTurner(tester);
 
     await press(tester, LogicalKeyboardKey.arrowLeft);
-    expect(find.text('box 0'), findsOneWidget);
-    expect(find.text(pageOf(1, 3)), findsOneWidget);
+    expect(current(), 0);
 
     await press(tester, LogicalKeyboardKey.arrowRight);
-    expect(find.text('box 1'), findsOneWidget);
-    expect(find.text(pageOf(2, 3)), findsOneWidget);
+    expect(current(), 1);
 
     await press(tester, LogicalKeyboardKey.arrowRight);
     await press(tester, LogicalKeyboardKey.arrowRight);
-    expect(find.text('box 2'), findsOneWidget);
-    expect(find.text(pageOf(3, 3)), findsOneWidget);
+    expect(current(), 2);
 
     await press(tester, LogicalKeyboardKey.arrowLeft);
-    expect(find.text('box 1'), findsOneWidget);
-    expect(find.text(pageOf(2, 3)), findsOneWidget);
+    expect(current(), 1);
+    expect(turns, [1, 2, 1], reason: 'one report per turn');
   });
 
   testWidgets('a single page turns nowhere', (tester) async {
@@ -85,7 +92,7 @@ void main() {
     await press(tester, LogicalKeyboardKey.arrowLeft);
 
     expect(find.text('box 0'), findsOneWidget);
-    expect(find.text(pageOf(1, 1)), findsOneWidget);
+    expect(turns, isEmpty);
   });
 
   testWidgets('a swipe to the left turns forward, one to the right back', (
@@ -95,13 +102,11 @@ void main() {
 
     await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
     await tester.pumpAndSettle();
-    expect(find.text('box 1'), findsOneWidget);
-    expect(find.text(pageOf(2, 3)), findsOneWidget);
+    expect(current(), 1);
 
     await tester.fling(find.byType(PageView), const Offset(400, 0), 1000);
     await tester.pumpAndSettle();
-    expect(find.text('box 0'), findsOneWidget);
-    expect(find.text(pageOf(1, 3)), findsOneWidget);
+    expect(current(), 0);
   });
 
   testWidgets('a zoomed page holds still under a swipe; a turn zooms out', (
@@ -116,15 +121,15 @@ void main() {
 
     await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
     await tester.pumpAndSettle();
-    expect(find.text(pageOf(1, 3)), findsOneWidget);
+    expect(current(), 0);
 
     await press(tester, LogicalKeyboardKey.arrowRight);
-    expect(find.text(pageOf(2, 3)), findsOneWidget);
+    expect(current(), 1);
     expect(zoom.value.getMaxScaleOnAxis(), 1);
 
     await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
     await tester.pumpAndSettle();
-    expect(find.text(pageOf(3, 3)), findsOneWidget);
+    expect(current(), 2);
   });
 
   testWidgets(
@@ -154,6 +159,8 @@ void main() {
       screen: Scaffold(
         body: PageTurner(
           count: 3,
+          onPageChanged: turns.add,
+          onTap: () => taps++,
           pageBuilder: (context, index, decodeWidth) => Center(
             child: TextButton(
               onPressed: () => PageTurner.of(context).turnTo(2),
@@ -165,8 +172,8 @@ void main() {
     );
     await tester.tap(find.text('box 0'));
     await tester.pumpAndSettle();
-    expect(find.text('box 2'), findsOneWidget);
-    expect(find.text(pageOf(3, 3)), findsOneWidget);
+    expect(current(), 2);
+    expect(taps, 0, reason: 'the button took the tap');
 
     final zoom = tester
         .widget<InteractiveViewer>(find.byType(InteractiveViewer))
@@ -176,16 +183,33 @@ void main() {
     final turner = tester.state<PageTurnerState>(find.byType(PageTurner));
     turner.turnTo(0);
     await tester.pumpAndSettle();
-    expect(find.text(pageOf(1, 3)), findsOneWidget);
+    expect(current(), 0);
     expect(zoom.value.getMaxScaleOnAxis(), 1);
 
     turner.turnTo(3);
     await tester.pumpAndSettle();
-    expect(
-      find.text(pageOf(1, 3)),
-      findsOneWidget,
-      reason: 'a page that does not exist',
-    );
+    expect(current(), 0, reason: 'a page that does not exist');
+  });
+
+  testWidgets('a tap on a page that nothing on it takes is reported', (
+    tester,
+  ) async {
+    await showTurner(tester);
+
+    await tester.tap(find.text('box 0'));
+    await tester.pumpAndSettle();
+
+    expect(taps, 1);
+    expect(turns, isEmpty, reason: 'a tap turns nothing');
+  });
+
+  testWidgets('a swipe is no tap', (tester) async {
+    await showTurner(tester);
+
+    await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
+    await tester.pumpAndSettle();
+
+    expect(taps, 0);
   });
 
   testWidgets('says whether its pages are moving', (tester) async {
@@ -209,7 +233,7 @@ void main() {
     expect(moving.value, isTrue, reason: 'in the middle of a swipe');
     await tester.pumpAndSettle();
     expect(moving.value, isFalse);
-    expect(find.text(pageOf(3, 3)), findsOneWidget);
+    expect(current(), 2);
   });
 
   test('a turner without pages is a mistake', () {

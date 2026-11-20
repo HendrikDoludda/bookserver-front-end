@@ -160,6 +160,8 @@ void main() {
     final params = pdfViewerParams(
       background: background,
       onPageChanged: (_) {},
+      onTap: () {},
+      onInteractionStart: () {},
     );
 
     expect(params.verticalCacheExtent, 2);
@@ -169,5 +171,56 @@ void main() {
       const Duration(milliseconds: 300),
     );
     expect(params.backgroundColor, background);
+  });
+
+  testWidgets(
+    'a single tap on the pages is the reader\'s; the viewer keeps the rest',
+    (tester) async {
+      var taps = 0;
+      final params = pdfViewerParams(
+        background: const Color(0xFF808080),
+        onPageChanged: (_) {},
+        onTap: () => taps++,
+        onInteractionStart: () {},
+      );
+      await tester.pumpWidget(const SizedBox());
+      final context = tester.element(find.byType(SizedBox));
+
+      bool tap(PdfViewerGeneralTapType type) => params.onGeneralTap!(
+        context,
+        PdfViewerController(),
+        PdfViewerGeneralTapHandlerDetails(
+          localPosition: Offset.zero,
+          documentPosition: Offset.zero,
+          type: type,
+          tapOn: PdfViewerPart.background,
+        ),
+      );
+
+      expect(tap(PdfViewerGeneralTapType.tap), isTrue);
+      expect(taps, 1);
+      for (final type in [
+        PdfViewerGeneralTapType.doubleTap,
+        PdfViewerGeneralTapType.longPress,
+        PdfViewerGeneralTapType.secondaryTap,
+      ]) {
+        expect(tap(type), isFalse, reason: '$type');
+      }
+      expect(taps, 1);
+    },
+  );
+
+  test('the start of a drag or a pinch is reported', () {
+    var starts = 0;
+    final params = pdfViewerParams(
+      background: const Color(0xFF808080),
+      onPageChanged: (_) {},
+      onTap: () {},
+      onInteractionStart: () => starts++,
+    );
+
+    params.onInteractionStart!(ScaleStartDetails());
+
+    expect(starts, 1);
   });
 }

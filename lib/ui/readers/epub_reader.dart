@@ -11,6 +11,7 @@ import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
 import 'package:bookserver/ui/readers/fixed_layout_page.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
+import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:material_ui/material_ui.dart';
@@ -28,12 +29,16 @@ class EpubReader extends StatefulWidget {
 }
 
 class _EpubReaderState extends State<EpubReader> {
+  final _frame = GlobalKey<ReaderFrameState>();
   File? _file;
   EpubBook? _epub;
   List<_Block> _blocks = const [];
   FixedLayoutBook? _fixedLayout;
   String? _errorKey;
   double? _received;
+
+  /// The fixed-layout page on screen.
+  var _page = 0;
 
   @override
   void initState() {
@@ -123,10 +128,22 @@ class _EpubReaderState extends State<EpubReader> {
     }
   }
 
+  void _toggleBar() => _frame.currentState?.toggleBar();
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.book.title)),
+    final epub = _epub;
+    return ReaderFrame(
+      key: _frame,
+      title: widget.book.title,
+      status: epub == null || _fixedLayout == null || _errorKey != null
+          ? null
+          : Text(
+              context.t('reader.page_of', {
+                'page': _page + 1,
+                'count': epub.chapters.length,
+              }),
+            ),
       body: _body(context),
     );
   }
@@ -155,6 +172,8 @@ class _EpubReaderState extends State<EpubReader> {
     if (_fixedLayout case final fixedLayout?) {
       return PageTurner(
         count: epub.chapters.length,
+        onPageChanged: (index) => setState(() => _page = index),
+        onTap: _toggleBar,
         pageBuilder: (context, index, decodeWidth) => FixedLayoutPage(
           key: ValueKey(index),
           book: fixedLayout,
@@ -163,7 +182,10 @@ class _EpubReaderState extends State<EpubReader> {
         ),
       );
     }
-    return _Blocks(book: epub, blocks: _blocks);
+    return GestureDetector(
+      onTap: _toggleBar,
+      child: _Blocks(book: epub, blocks: _blocks),
+    );
   }
 }
 

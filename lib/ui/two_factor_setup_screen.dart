@@ -3,10 +3,10 @@ import 'package:bookserver/data/two_factor_api.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/form_page.dart';
+import 'package:bookserver/ui/platform.dart';
 import 'package:bookserver/ui/qr_code.dart';
 import 'package:bookserver/ui/recovery_codes_screen.dart';
 import 'package:bookserver/ui/theme.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -56,10 +56,7 @@ class _TwoFactorSetupScreenState extends State<TwoFactorSetupScreen> {
   }
 
   // A phone can't scan its own screen; it opens the link in its authenticator app instead.
-  bool get _onPhone => const {
-    TargetPlatform.iOS,
-    TargetPlatform.android,
-  }.contains(defaultTargetPlatform);
+  bool get _onPhone => isPhoneOrTablet();
 
   bool get _canConfirm =>
       !_busy &&

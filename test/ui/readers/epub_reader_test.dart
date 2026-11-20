@@ -8,6 +8,7 @@ import 'package:bookserver/ui/epub_image.dart';
 import 'package:bookserver/ui/home_screen.dart';
 import 'package:bookserver/ui/readers/open_book.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
+import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -191,6 +192,47 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'a tap on the text shows and hides the bar; a link keeps its tap',
+    (tester) async {
+      await openReader(
+        tester,
+        fileServer(() async => file(gatsby)),
+        firstChapter,
+      );
+      final frame = tester.state<ReaderFrameState>(find.byType(ReaderFrame));
+      expect(frame.barShown, isTrue);
+
+      await tester.tap(firstChapter);
+      await tester.pump();
+      expect(frame.barShown, isFalse);
+
+      // On the link's first letters: a tap beside the text of a line hits no link.
+      final link = find.textContaining('On to chapter two', findRichText: true);
+      await tester.tapAt(tester.getTopLeft(link) + const Offset(8, 8));
+      await tester.pump();
+      expect(frame.barShown, isFalse, reason: 'the link took the tap');
+
+      await tester.tap(firstChapter);
+      await tester.pump();
+      expect(frame.barShown, isTrue);
+    },
+  );
+
+  testWidgets('scrolling the text hides the bar', (tester) async {
+    await openReader(
+      tester,
+      fileServer(() async => file(longBook)),
+      find.textContaining('Chapter 1, paragraph 1:', findRichText: true),
+    );
+    final frame = tester.state<ReaderFrameState>(find.byType(ReaderFrame));
+
+    await tester.drag(find.byType(Scrollable).last, const Offset(0, -200));
+    await tester.pump();
+
+    expect(frame.barShown, isFalse);
+  });
 
   testWidgets(
     'scrolling back up moves the text exactly as far as the list scrolls',

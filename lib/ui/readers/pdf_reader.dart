@@ -7,7 +7,7 @@ import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/data/session_http_client.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/notice.dart';
-import 'package:bookserver/ui/theme.dart';
+import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pdfrx/pdfrx.dart';
 
@@ -24,6 +24,7 @@ class PdfReader extends StatefulWidget {
 }
 
 class _PdfReaderState extends State<PdfReader> {
+  final _frame = GlobalKey<ReaderFrameState>();
   PdfDocumentRefDirect? _document;
   String? _errorKey;
   int? _page;
@@ -77,12 +78,34 @@ class _PdfReaderState extends State<PdfReader> {
     }
   }
 
-  void _pageChanged(int? page) => setState(() => _page = page);
+  void _pageChanged(int? page) {
+    // The viewer names its first page once it has laid the pages out; only a later change is a
+    // turn.
+    final turned = _page != null && page != _page;
+    setState(() => _page = page);
+    if (turned) {
+      _hideBar();
+    }
+  }
+
+  void _hideBar() => _frame.currentState?.hideBar();
+
+  void _toggleBar() => _frame.currentState?.toggleBar();
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.book.title)),
+    final document = _document;
+    return ReaderFrame(
+      key: _frame,
+      title: widget.book.title,
+      status: document == null || _errorKey != null
+          ? null
+          : Text(
+              context.t('reader.page_of', {
+                'page': _page ?? 1,
+                'count': document.document.pages.length,
+              }),
+            ),
       body: _body(context),
     );
   }
@@ -105,38 +128,25 @@ class _PdfReaderState extends State<PdfReader> {
         action: const CircularProgressIndicator(),
       );
     }
-    return Column(
-      children: [
-        Expanded(
-          child: PdfViewer(
-            document,
-            params: pdfViewerParams(
-              background: Theme.of(context).colorScheme.surfaceContainerHighest,
-              onPageChanged: _pageChanged,
-            ),
-          ),
-        ),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.all(Spacing.small),
-            child: Text(
-              context.t('reader.page_of', {
-                'page': _page ?? 1,
-                'count': document.document.pages.length,
-              }),
-            ),
-          ),
-        ),
-      ],
+    return PdfViewer(
+      document,
+      params: pdfViewerParams(
+        background: Theme.of(context).colorScheme.surfaceContainerHighest,
+        onPageChanged: _pageChanged,
+        onTap: _toggleBar,
+        onInteractionStart: _hideBar,
+      ),
     );
   }
 }
 
-/// The settings of the viewer a PDF is read in.
+/// The settings of the viewer a PDF is read in. [onTap] is called for a single tap on the pages;
+/// [onInteractionStart] when a drag or a pinch starts.
 PdfViewerParams pdfViewerParams({
   required Color background,
   required PdfPageChangedCallback onPageChanged,
+  required VoidCallback onTap,
+  required VoidCallback onInteractionStart,
 }) => PdfViewerParams(
   backgroundColor: background,
   // Renders, and so downloads, pages two window heights above and below the screen: three scrolled
@@ -151,6 +161,14 @@ PdfViewerParams pdfViewerParams({
     partialImageLoadingDelay: Duration(milliseconds: 300),
   ),
   onPageChanged: onPageChanged,
+  onInteractionStart: (_) => onInteractionStart(),
+  onGeneralTap: (context, controller, details) {
+    if (details.type != PdfViewerGeneralTapType.tap) {
+      return false;
+    }
+    onTap();
+    return true;
+  },
 );
 
 Future<void> _close(PdfDocument? document) async {

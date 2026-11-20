@@ -2,6 +2,7 @@ import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/home_screen.dart';
 import 'package:bookserver/ui/readers/open_book.dart';
+import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -177,6 +178,31 @@ void main() {
     expect(find.text(pageOf(2, 3)), findsOneWidget);
     expect(zoom.value.getMaxScaleOnAxis(), 1);
   });
+
+  testWidgets(
+    'a tap on the page shows and hides the bars; a turn hides them, the count stays',
+    (tester) async {
+      // No page loads, so each shows why: text to tap, with Try again under it.
+      await openReader(tester, readerServer(() async => pageList(3)));
+      await tester.pump();
+      final frame = tester.state<ReaderFrameState>(find.byType(ReaderFrame));
+      final onPage = find.text(english.text('reader.page_failed')).first;
+      expect(frame.barShown, isTrue);
+
+      await tester.tap(onPage);
+      await finishTurn(tester);
+      expect(frame.barShown, isFalse);
+
+      await tester.tap(onPage);
+      await finishTurn(tester);
+      expect(frame.barShown, isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await finishTurn(tester);
+      expect(frame.barShown, isFalse);
+      expect(find.text(pageOf(2, 3)), findsOneWidget);
+    },
+  );
 
   testWidgets("a page that didn't load says so, and Try again loads it", (
     tester,

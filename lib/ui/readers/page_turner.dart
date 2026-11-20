@@ -1,21 +1,29 @@
-import 'package:bookserver/i18n/catalog.dart';
-import 'package:bookserver/ui/theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Shows [count] pages one at a time, swiped or turned with the arrow keys, zoomable, with
-/// "Page X of Y" under them.
+/// Shows [count] pages one at a time, swiped or turned with the arrow keys, zoomable.
 ///
 /// [pageBuilder] builds page `index`; a picture on it is decoded at most `decodeWidth` pixels
 /// wide.
 class PageTurner extends StatefulWidget {
-  const PageTurner({super.key, required this.count, required this.pageBuilder})
-    : assert(count > 0);
+  const PageTurner({
+    super.key,
+    required this.count,
+    required this.pageBuilder,
+    this.onPageChanged,
+    this.onTap,
+  }) : assert(count > 0);
 
   final int count;
   final Widget Function(BuildContext context, int index, int decodeWidth)
   pageBuilder;
+
+  /// Called with the index of the page a turn lands on.
+  final ValueChanged<int>? onPageChanged;
+
+  /// Called for a tap on a page that nothing on it took, such as a link.
+  final VoidCallback? onTap;
 
   /// The page turner that shows [context], to turn its pages from inside one.
   static PageTurnerState of(BuildContext context) =>
@@ -102,55 +110,41 @@ class PageTurnerState extends State<PageTurner> {
     );
   }
 
+  void _pageChanged(int index) {
+    setState(() => _index = index);
+    widget.onPageChanged?.call(index);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Expanded(
-          child: CallbackShortcuts(
-            bindings: {
-              const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
-                  _turn(-1),
-              const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
-                  _turn(1),
-            },
-            child: Focus(
-              autofocus: true,
-              child: NotificationListener<ScrollNotification>(
-                onNotification: _scrolled,
-                child: PageView.builder(
-                  controller: _pages,
-                  // Builds the page on either side as well, so the next one is loaded before
-                  // it's turned to.
-                  allowImplicitScrolling: true,
-                  physics: _zoomed
-                      ? const NeverScrollableScrollPhysics()
-                      : null,
-                  itemCount: widget.count,
-                  onPageChanged: (index) => setState(() => _index = index),
-                  itemBuilder: (context, index) => InteractiveViewer(
-                    transformationController: _zoom,
-                    minScale: 1,
-                    child: widget.pageBuilder(context, index, _decodeWidth),
-                  ),
-                ),
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _turn(-1),
+          const SingleActivator(LogicalKeyboardKey.arrowRight): () => _turn(1),
+        },
+        child: Focus(
+          autofocus: true,
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _scrolled,
+            child: PageView.builder(
+              controller: _pages,
+              // Builds the page on either side as well, so the next one is loaded before it's
+              // turned to.
+              allowImplicitScrolling: true,
+              physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
+              itemCount: widget.count,
+              onPageChanged: _pageChanged,
+              itemBuilder: (context, index) => InteractiveViewer(
+                transformationController: _zoom,
+                minScale: 1,
+                child: widget.pageBuilder(context, index, _decodeWidth),
               ),
             ),
           ),
         ),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.all(Spacing.small),
-            child: Text(
-              context.t('reader.page_of', {
-                'page': _index + 1,
-                'count': widget.count,
-              }),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

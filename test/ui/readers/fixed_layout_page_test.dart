@@ -60,6 +60,14 @@ void main() {
   Future<void> countLoads(String family, List<Uint8List> files) async =>
       loads.add((family, files.length));
 
+  /// The pages the turner said it landed on, in order.
+  final turns = <int>[];
+  var taps = 0;
+  setUp(() {
+    turns.clear();
+    taps = 0;
+  });
+
   /// Shows [book]'s pages in a page turner, as the EPUB reader does.
   Future<void> show(WidgetTester tester, FixedLayoutBook book) async {
     await pumpScreen(
@@ -68,6 +76,8 @@ void main() {
       screen: Scaffold(
         body: PageTurner(
           count: book.book.chapters.length,
+          onPageChanged: turns.add,
+          onTap: () => taps++,
           pageBuilder: (context, index, decodeWidth) => FixedLayoutPage(
             key: ValueKey(index),
             book: book,
@@ -81,9 +91,6 @@ void main() {
   }
 
   Finder text(String text) => find.text(text, findRichText: true);
-
-  String pageOf(int page, int count) =>
-      english.text('reader.page_of', {'page': page, 'count': count});
 
   /// Where the page on screen is drawn.
   Rect pageRect(WidgetTester tester) => tester.getRect(
@@ -127,7 +134,11 @@ void main() {
 
       final page = pageRect(tester);
       expect(page.height / page.width, moreOrLessEquals(1.5));
-      expect(page.height, lessThan(600), reason: 'the window is 600 high');
+      expect(
+        page.height,
+        lessThanOrEqualTo(600),
+        reason: 'the window is 600 high',
+      );
       final scale = page.width / 1000;
       expect(
         tester.getTopLeft(text('first')),
@@ -294,32 +305,35 @@ span.b { font-family: Helvetica; font-size: 10px; text-decoration: underline; }'
     },
   );
 
-  testWidgets('a tap on a link turns to its page; on other text, nothing', (
-    tester,
-  ) async {
-    await show(
-      tester,
-      FixedLayoutBook(
-        open([
-          '<div style="left:100px;top:100px">Kale, <a href="p3.xhtml">11</a>, <a href="p2.xhtml">102–3</a></div>',
-          '<div style="left:100px;top:100px">two</div>',
-          '<div style="left:100px;top:100px">three</div>',
-        ]),
-        7,
-        loadFont: countLoads,
-      ),
-    );
+  testWidgets(
+    'a tap on a link turns to its page; on other text, it is the turner\'s',
+    (tester) async {
+      await show(
+        tester,
+        FixedLayoutBook(
+          open([
+            '<div style="left:100px;top:100px">Kale, <a href="p3.xhtml">11</a>, <a href="p2.xhtml">102–3</a></div>',
+            '<div style="left:100px;top:100px">two</div>',
+            '<div style="left:100px;top:100px">three</div>',
+          ]),
+          7,
+          loadFont: countLoads,
+        ),
+      );
 
-    const line = 'Kale, 11, 102–3';
-    await tapOn(tester, line, 'Kale');
-    await tester.pumpAndSettle();
-    expect(find.text(pageOf(1, 3)), findsOneWidget);
+      const line = 'Kale, 11, 102–3';
+      await tapOn(tester, line, 'Kale');
+      await tester.pumpAndSettle();
+      expect(turns, isEmpty);
+      expect(taps, 1, reason: 'plain text leaves the tap to the turner');
 
-    await tapOn(tester, line, '11');
-    await tester.pumpAndSettle();
-    expect(find.text(pageOf(3, 3)), findsOneWidget);
-    expect(text('three'), findsOneWidget);
-  });
+      await tapOn(tester, line, '11');
+      await tester.pumpAndSettle();
+      expect(turns, [2]);
+      expect(text('three'), findsOneWidget);
+      expect(taps, 1, reason: 'the link took the tap');
+    },
+  );
 
   testWidgets('loads the fonts a book brings once, under names of its own', (
     tester,
