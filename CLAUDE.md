@@ -42,7 +42,8 @@ pdfrx 3.0
 for PDFs, with its own PDFium built into the app · for EPUBs: archive 4.7, xml 7.1, html 0.15,
 csslib 1.0 and flutter_widget_from_html_core 0.17 · path_provider 2.1 for the EPUBs' temporary
 files and the kept catalog.
-Code lives in `lib/`, tests in `test/`; the platforms are the native folders that exist.
+Code lives in `lib/`, tests in `test/`; the platforms are the native folders that exist —
+`android/`, `ios/`, `macos/`, `windows/`, `linux/` — and `docker/` holds the Linux build.
 
 ### Rules learned
 

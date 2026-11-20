@@ -1,0 +1,14 @@
+# The Mac's build output, package paths and SDK paths would break the container's build.
+build
+.dart_tool
+**/local.properties
+**/.gradle
+ios/Pods
+macos/Pods
+linux/flutter/ephemeral
+windows/flutter/ephemeral
+.git
+# Signing secrets never go into an image, whose layers keep every file copied in.
+android/key.properties
+**/*.jks
+**/*.keystore
