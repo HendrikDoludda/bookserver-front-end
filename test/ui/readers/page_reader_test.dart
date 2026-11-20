@@ -5,6 +5,7 @@ import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/home_screen.dart';
 import 'package:bookserver/ui/readers/open_book.dart';
+import 'package:bookserver/ui/readers/page_column.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:flutter/services.dart';
@@ -107,13 +108,45 @@ void main() {
   PageTurner turner(WidgetTester tester) =>
       tester.widget<PageTurner>(find.byType(PageTurner));
 
-  /// Opens the reading-mode menu in the bar and chooses the mode named [key].
+  /// Opens the reading-mode menu in the bar and chooses the mode named [key]: taps its entry, whose
+  /// ink layer lies over its name.
   Future<void> chooseMode(WidgetTester tester, String key) async {
     await tester.tap(find.byTooltip(english.text('reader.mode')));
     await finishTurn(tester);
-    await tester.tap(find.text(english.text(key)));
+    await tester.tap(
+      find.ancestor(
+        of: find.text(english.text(key)),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is CheckedPopupMenuItem<ReadingMode>,
+        ),
+      ),
+    );
     await finishTurn(tester);
   }
+
+  /// Brings back the bars a turn or a scroll hid: a tap in the middle of the pages [pages] shows,
+  /// above the notice a page that didn't load shows.
+  Future<void> showBars(WidgetTester tester, Finder pages) async {
+    final area = tester.getRect(pages);
+    await tester.tapAt(Offset(area.center.dx, area.top + area.height / 4));
+    await finishTurn(tester);
+    expect(
+      tester.state<ReaderFrameState>(find.byType(ReaderFrame)).barShown,
+      isTrue,
+    );
+  }
+
+  /// The column's own scrolling, the outermost in it: a page's notice scrolls as well.
+  ScrollPosition columnScroll(WidgetTester tester) => tester
+      .state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byType(PageColumn),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      )
+      .position;
 
   testWidgets("opens on the first page, under the book's title", (
     tester,
@@ -435,11 +468,7 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       await finishTurn(tester);
       expect(find.text(pageOf(2, 3)), findsOneWidget);
-      // The turn hid the bars; a tap in the middle of the page, above its notice, brings them
-      // back.
-      final pages = tester.getRect(find.byType(PageTurner));
-      await tester.tapAt(Offset(pages.center.dx, pages.top + pages.height / 4));
-      await finishTurn(tester);
+      await showBars(tester, find.byType(PageTurner));
 
       await chooseMode(tester, 'reader.mode_rtl');
 
@@ -519,5 +548,91 @@ void main() {
     await tester.tapAt(pages.centerRight - const Offset(20, 0));
     await finishTurn(tester);
     expect(find.text(pageOf(1, 3)), findsOneWidget);
+  });
+
+  testWidgets(
+    'continuous scroll takes over at the page on screen, and the pages take over from it',
+    (tester) async {
+      await openReader(tester, readerServer(() async => pageList(3)));
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await finishTurn(tester);
+      await showBars(tester, find.byType(PageTurner));
+
+      await chooseMode(tester, 'reader.mode_continuous');
+
+      expect(find.byType(PageColumn), findsOneWidget);
+      expect(find.byType(PageTurner), findsNothing);
+      expect(find.byType(InteractiveViewer), findsNothing, reason: 'no zoom');
+      expect(find.byIcon(Icons.south), findsOneWidget);
+      expect(find.text(pageOf(2, 3)), findsOneWidget);
+
+      columnScroll(tester).jumpTo(columnScroll(tester).maxScrollExtent);
+      await finishTurn(tester);
+      expect(
+        find.text(pageOf(3, 3)),
+        findsOneWidget,
+        reason: 'the page in the middle of the screen',
+      );
+
+      await showBars(tester, find.byType(PageColumn));
+      await chooseMode(tester, 'reader.mode_ltr');
+      expect(find.byType(PageTurner), findsOneWidget);
+      expect(find.text(pageOf(3, 3)), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await finishTurn(tester);
+      expect(find.text(pageOf(2, 3)), findsOneWidget);
+    },
+  );
+
+  testWidgets('the keys scroll the column as soon as it shows', (tester) async {
+    await openReader(tester, readerServer(() async => pageList(3)));
+
+    await chooseMode(tester, 'reader.mode_continuous');
+    final before = columnScroll(tester).pixels;
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await finishTurn(tester);
+
+    expect(columnScroll(tester).pixels, greaterThan(before));
+  });
+
+  testWidgets('a book read in continuous scroll opens in its column; a scroll hides the bars, a tap '
+      'shows them', (tester) async {
+    await openReader(
+      tester,
+      readerServer(
+        () async => pageList(3),
+        book: () async => details(mode: 'continuous'),
+      ),
+    );
+    final frame = tester.state<ReaderFrameState>(find.byType(ReaderFrame));
+    expect(find.byType(PageColumn), findsOneWidget);
+    expect(find.text(pageOf(1, 3)), findsOneWidget);
+    expect(frame.barShown, isTrue);
+
+    await tester.drag(find.byType(PageColumn), const Offset(0, -300));
+    await finishTurn(tester);
+    expect(frame.barShown, isFalse);
+
+    await showBars(tester, find.byType(PageColumn));
+  });
+
+  testWidgets("the column's pages decode at the page turner's width", (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    await openReader(
+      tester,
+      readerServer(
+        () async => pageList(1),
+        book: () async => details(mode: 'continuous'),
+      ),
+    );
+
+    expect(
+      tester.widget<Image>(find.byType(Image)).image,
+      isA<ResizeImage>().having((image) => image.width, 'width', 2340),
+    );
   });
 }

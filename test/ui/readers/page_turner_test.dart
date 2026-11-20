@@ -353,6 +353,29 @@ void main() {
     },
   );
 
+  testWidgets('opens on the page it is given', (tester) async {
+    await pumpScreen(
+      tester,
+      catalog: english,
+      screen: Scaffold(
+        body: PageTurner(
+          count: 3,
+          initialIndex: 2,
+          onPageChanged: turns.add,
+          pageBuilder: (context, index, decodeWidth) =>
+              Center(child: Text('box $index')),
+        ),
+      ),
+    );
+
+    expect(find.text('box 2'), findsOneWidget);
+    expect(turns, isEmpty);
+    await press(tester, LogicalKeyboardKey.arrowRight);
+    expect(turns, isEmpty, reason: 'nothing after the last page');
+    await press(tester, LogicalKeyboardKey.arrowLeft);
+    expect(current(), 1);
+  });
+
   test('a turner without pages is a mistake', () {
     expect(
       () => PageTurner(

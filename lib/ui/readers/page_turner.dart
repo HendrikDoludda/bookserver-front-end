@@ -3,6 +3,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+/// The widest, in pixels, a reader decodes a page's pictures: twice the window's shorter side.
+/// Taken once while a book is open, so resizing the window or turning the phone fetches no page
+/// again; the shorter side doesn't change when the phone turns.
+// Sharp up to a 2× zoom, where a full-size scan would decode to about 100 MB.
+int pageDecodeWidth(BuildContext context) =>
+    (MediaQuery.sizeOf(context).shortestSide *
+            MediaQuery.devicePixelRatioOf(context) *
+            2)
+        .round();
+
 /// Shows [count] pages one at a time, zoomable, turned by a swipe, the arrow keys or a tap on
 /// either edge. Right to left with [rightToLeft]: then page 1 is at the right, and a swipe to the
 /// right, the left arrow and the left edge go forward.
@@ -14,14 +24,18 @@ class PageTurner extends StatefulWidget {
     super.key,
     required this.count,
     required this.pageBuilder,
+    this.initialIndex = 0,
     this.rightToLeft = false,
     this.onPageChanged,
     this.onTap,
-  }) : assert(count > 0);
+  }) : assert(count > 0 && initialIndex >= 0 && initialIndex < count);
 
   final int count;
   final Widget Function(BuildContext context, int index, int decodeWidth)
   pageBuilder;
+
+  /// The page shown first.
+  final int initialIndex;
 
   /// Whether the pages run right to left, as a manga's do.
   final bool rightToLeft;
@@ -41,7 +55,7 @@ class PageTurner extends StatefulWidget {
 }
 
 class PageTurnerState extends State<PageTurner> {
-  final _pages = PageController();
+  late final _pages = PageController(initialPage: widget.initialIndex);
   final _moving = ValueNotifier(false);
 
   /// Whether the pages are moving: a swipe, a turn, a link's jump.
@@ -51,16 +65,9 @@ class PageTurnerState extends State<PageTurner> {
   // reaches the pages beside it.
   final _zoom = TransformationController();
 
-  var _index = 0;
+  late var _index = widget.initialIndex;
   var _zoomed = false;
-
-  // Sharp up to a 2× zoom, where a full-size scan would decode to about 100 MB. Fixed while the
-  // book is open, so resizing the window or turning the phone doesn't fetch every page again.
-  late final int _decodeWidth =
-      (MediaQuery.sizeOf(context).shortestSide *
-              MediaQuery.devicePixelRatioOf(context) *
-              2)
-          .round();
+  late final int _decodeWidth = pageDecodeWidth(context);
 
   @override
   void initState() {

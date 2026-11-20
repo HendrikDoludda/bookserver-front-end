@@ -3,14 +3,15 @@ import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
+import 'package:bookserver/ui/readers/page_column.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:bookserver/ui/readers/reading_mode_button.dart';
 import 'package:bookserver/ui/server_image.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Reads a CBZ or image-folder book one page at a time, zoomable, turned by a swipe, the arrow
-/// keys or a tap on either edge: right to left or left to right, as the user's mode says.
+/// Reads a CBZ or image-folder book in the user's mode: one page at a time, right to left or left
+/// to right, or top to bottom in one scrolling column.
 class PageReader extends StatefulWidget {
   const PageReader({super.key, required this.session, required this.book});
 
@@ -115,20 +116,34 @@ class _PageReaderState extends State<PageReader> {
     if (pages.isEmpty) {
       return Notice(text: context.t('reader.open_failed'));
     }
+    Widget page(BuildContext context, int index, int decodeWidth) => _Page(
+      image: ResizeImage(
+        ServerImage(
+          widget.session,
+          pagePath(widget.book.id, pages[index].number),
+        ),
+        width: decodeWidth,
+      ),
+    );
+    void pageChanged(int index) => setState(() => _index = index);
+    void toggleBar() => _frame.currentState?.toggleBar();
+    // Either one takes over at the page the other was on.
+    if (_mode == ReadingMode.continuous) {
+      return PageColumn(
+        sizes: [for (final page in pages) page.size],
+        initialIndex: _index,
+        onPageChanged: pageChanged,
+        onTap: toggleBar,
+        pageBuilder: page,
+      );
+    }
     return PageTurner(
       count: pages.length,
+      initialIndex: _index,
       rightToLeft: _mode == ReadingMode.rtl,
-      onPageChanged: (index) => setState(() => _index = index),
-      onTap: () => _frame.currentState?.toggleBar(),
-      pageBuilder: (context, index, decodeWidth) => _Page(
-        image: ResizeImage(
-          ServerImage(
-            widget.session,
-            pagePath(widget.book.id, pages[index].number),
-          ),
-          width: decodeWidth,
-        ),
-      ),
+      onPageChanged: pageChanged,
+      onTap: toggleBar,
+      pageBuilder: page,
     );
   }
 }
