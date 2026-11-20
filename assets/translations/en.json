@@ -73,6 +73,12 @@
     "use_app_code": "Use the authenticator app instead",
     "use_recovery_code": "Use a recovery code instead"
   },
+  "menu": {
+    "libraries": "Libraries",
+    "settings": "Settings",
+    "sign_out": "Sign out",
+    "user": "Account"
+  },
   "password_reset": {
     "code": "Code",
     "done": "Your password is changed. Sign in with the new one.",
@@ -88,12 +94,24 @@
     "title": "Reset your password"
   },
   "reader": {
+    "contents": "Contents",
+    "font_larger": "Larger text",
+    "font_smaller": "Smaller text",
+    "mode": "Reading mode",
+    "mode_continuous": "Continuous scroll",
+    "mode_ltr": "Left to right",
+    "mode_not_saved": "The reading mode couldn't be saved.",
+    "mode_rtl": "Right to left",
     "open_failed": "This book can't be opened.",
     "opening": "Opening the book…",
     "page_failed": "This page couldn't be loaded.",
     "page_of": "Page {page} of {count}",
+    "percent": "{percent}%",
     "retry": "Try again",
-    "unsupported": "The app can't show this kind of book yet."
+    "unsupported": "The app can't show this kind of book yet.",
+    "zoom": "Zoom",
+    "zoom_fit_page": "Fit page",
+    "zoom_fit_width": "Fit width"
   },
   "server": {
     "address_hint": "https://my-server.tailnet.ts.net",
@@ -107,8 +125,11 @@
   "settings": {
     "device_language": "Device language",
     "device_language_explanation": "Follows your device's language where the server offers it.",
+    "handedness": "Handedness",
     "language": "Language",
+    "left_handed": "Left-handed",
     "reload": "Reload",
+    "right_handed": "Right-handed",
     "title": "Settings"
   },
   "sign_up": {
