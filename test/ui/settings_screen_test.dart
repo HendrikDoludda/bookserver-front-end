@@ -24,7 +24,7 @@ void main() {
   late _SettingsServer server;
   setUp(() => server = _SettingsServer());
 
-  /// Starts signed in on the libraries and opens the settings with the top bar's button.
+  /// Starts signed in on the libraries and opens the settings from the user menu.
   Future<void> atSettings(
     WidgetTester tester, {
     bool followCatalog = false,
@@ -37,7 +37,7 @@ void main() {
       followCatalog: followCatalog,
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip(english.text('home.settings')));
+    await chooseInUserMenu(tester, english, 'menu.settings');
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
   }

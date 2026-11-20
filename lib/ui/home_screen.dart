@@ -6,7 +6,7 @@ import 'package:bookserver/ui/cover.dart';
 import 'package:bookserver/ui/cover_grid.dart';
 import 'package:bookserver/ui/list_screen.dart';
 import 'package:bookserver/ui/series_screen.dart';
-import 'package:bookserver/ui/settings_screen.dart';
+import 'package:bookserver/ui/user_menu.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// The first screen once signed in: the server's libraries.
@@ -25,23 +25,7 @@ class HomeScreen extends StatelessWidget {
       load: () => session.authorized(
         (api, sessionToken) => BrowseApi(api).libraries(sessionToken),
       ),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.settings),
-          tooltip: context.t('home.settings'),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) =>
-                  SettingsScreen(session: session, catalogs: catalogs),
-            ),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.logout),
-          tooltip: context.t('home.sign_out'),
-          onPressed: session.logOut,
-        ),
-      ],
+      actions: [UserMenu(session: session, catalogs: catalogs)],
       builder: (context, libraries) => CoverGrid(
         itemCount: libraries.length,
         withDetail: true,
@@ -57,8 +41,11 @@ class HomeScreen extends StatelessWidget {
             detail: context.plural('browse.series_count', library.seriesCount),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) =>
-                    SeriesScreen(session: session, library: library),
+                builder: (_) => SeriesScreen(
+                  session: session,
+                  catalogs: catalogs,
+                  library: library,
+                ),
               ),
             ),
           );

@@ -4,6 +4,7 @@ import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/books_screen.dart';
 import 'package:bookserver/ui/cover_grid.dart';
 import 'package:bookserver/ui/readers/page_reader.dart';
+import 'package:bookserver/ui/settings_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
@@ -225,6 +226,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(volume2, findsOneWidget);
+  });
+
+  testWidgets('the user menu opens Settings and signs out', (tester) async {
+    await openAlpha(tester, alphaServer(() async => jsonAnswer([])));
+    await tester.pumpAndSettle();
+
+    await chooseInUserMenu(tester, english, 'menu.settings');
+    await tester.pumpAndSettle();
+    expect(find.byType(SettingsScreen), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(BooksScreen), findsOneWidget);
+
+    await chooseInUserMenu(tester, english, 'menu.sign_out');
+    await tester.pumpAndSettle();
+    expect(find.text(english.text('login.username_or_email')), findsOneWidget);
   });
 
   testWidgets('a tap on a book opens it in the reader for its format', (

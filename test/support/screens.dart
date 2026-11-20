@@ -97,6 +97,18 @@ Future<void> finishTransition(WidgetTester tester) async {
   await tester.pump(const Duration(seconds: 1));
 }
 
+/// Opens the user menu at the top right and taps its entry [key]. Pumps by time, as
+/// [finishTransition] does: a screen whose list is still loading never settles.
+Future<void> chooseInUserMenu(
+  WidgetTester tester,
+  Catalog catalog,
+  String key,
+) async {
+  await tester.tap(find.byTooltip(catalog.text('menu.user')));
+  await finishTransition(tester);
+  await tester.tap(find.text(catalog.text(key)));
+}
+
 /// Starts the whole app as `main()` does, on [store]'s record and [server]. The app shows [catalog]
 /// throughout, unless [followCatalog]: then [catalog] is the built-in English and the app follows
 /// the session to [server]'s catalog, whose requests the test answers.

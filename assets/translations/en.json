@@ -51,8 +51,6 @@
   "home": {
     "empty": "No libraries yet. They appear once an admin scans the book folders.",
     "reload": "Reload",
-    "settings": "Settings",
-    "sign_out": "Sign out",
     "title": "Libraries"
   },
   "login": {

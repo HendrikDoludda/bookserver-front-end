@@ -266,7 +266,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(english.text('home.title')), findsOneWidget);
 
-    await tester.tap(find.byTooltip(english.text('home.sign_out')));
+    await chooseInUserMenu(tester, english, 'menu.sign_out');
     await tester.pumpAndSettle();
 
     expect(find.text(english.text('login.username_or_email')), findsOneWidget);
@@ -292,7 +292,7 @@ void main() {
     await start(tester, server);
     await tester.pump();
 
-    await tester.tap(find.byTooltip(english.text('home.sign_out')));
+    await chooseInUserMenu(tester, english, 'menu.sign_out');
     await tester.pumpAndSettle();
     answer.complete(libraries(['Manga']));
     await tester.pumpAndSettle();

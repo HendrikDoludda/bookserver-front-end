@@ -1,17 +1,25 @@
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/cover.dart';
 import 'package:bookserver/ui/cover_grid.dart';
 import 'package:bookserver/ui/list_screen.dart';
 import 'package:bookserver/ui/readers/open_book.dart';
+import 'package:bookserver/ui/user_menu.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// A series' books, in reading order.
 class BooksScreen extends StatelessWidget {
-  const BooksScreen({super.key, required this.session, required this.series});
+  const BooksScreen({
+    super.key,
+    required this.session,
+    required this.catalogs,
+    required this.series,
+  });
 
   final SessionController session;
+  final CatalogController catalogs;
   final Series series;
 
   @override
@@ -23,6 +31,7 @@ class BooksScreen extends StatelessWidget {
       load: () => session.authorized(
         (api, sessionToken) => BrowseApi(api).booksOf(series.id, sessionToken),
       ),
+      actions: [UserMenu(session: session, catalogs: catalogs)],
       builder: (context, books) => CoverGrid(
         itemCount: books.length,
         itemBuilder: (context, index) {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/books_screen.dart';
 import 'package:bookserver/ui/series_screen.dart';
+import 'package:bookserver/ui/settings_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
@@ -187,6 +188,23 @@ void main() {
       '/api/v1/libraries/3/series',
       '/api/v1/libraries/3/series',
     ]);
+  });
+
+  testWidgets('the user menu opens Settings and signs out', (tester) async {
+    await openManga(tester, mangaServer(() async => series({4: 'alpha'})));
+    await tester.pumpAndSettle();
+
+    await chooseInUserMenu(tester, english, 'menu.settings');
+    await tester.pumpAndSettle();
+    expect(find.byType(SettingsScreen), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(SeriesScreen), findsOneWidget);
+
+    await chooseInUserMenu(tester, english, 'menu.sign_out');
+    await tester.pumpAndSettle();
+    expect(find.text(english.text('login.username_or_email')), findsOneWidget);
   });
 
   testWidgets('Back leads to the libraries', (tester) async {
