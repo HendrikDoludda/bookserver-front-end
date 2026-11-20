@@ -25,25 +25,32 @@ void main() {
   /// The page on screen, as the turner reported it.
   int current() => turns.lastOrNull ?? 0;
 
-  /// Shows a [PageTurner] of [count] plain boxes, each saying its index; answers every build of a
-  /// page as its index and the decode width it was given, in order.
+  /// Shows a [PageTurner] of [count] plain boxes, each saying its index, in a screen written in
+  /// [textDirection]; answers every build of a page as its index and the decode width it was
+  /// given, in order. Shown again, the turner on screen takes the new settings.
   Future<List<(int, int)>> showTurner(
     WidgetTester tester, {
     int count = 3,
+    bool rightToLeft = false,
+    TextDirection textDirection = TextDirection.ltr,
   }) async {
     final builds = <(int, int)>[];
     await pumpScreen(
       tester,
       catalog: english,
-      screen: Scaffold(
-        body: PageTurner(
-          count: count,
-          onPageChanged: turns.add,
-          onTap: () => taps++,
-          pageBuilder: (context, index, decodeWidth) {
-            builds.add((index, decodeWidth));
-            return SizedBox.expand(child: Center(child: Text('box $index')));
-          },
+      screen: Directionality(
+        textDirection: textDirection,
+        child: Scaffold(
+          body: PageTurner(
+            count: count,
+            rightToLeft: rightToLeft,
+            onPageChanged: turns.add,
+            onTap: () => taps++,
+            pageBuilder: (context, index, decodeWidth) {
+              builds.add((index, decodeWidth));
+              return SizedBox.expand(child: Center(child: Text('box $index')));
+            },
+          ),
         ),
       ),
     );
@@ -54,6 +61,19 @@ void main() {
     await tester.sendKeyEvent(key);
     await tester.pumpAndSettle();
   }
+
+  /// Taps the pages [fraction] of their width from their left edge, halfway down.
+  Future<void> tapAcross(WidgetTester tester, double fraction) async {
+    final pages = tester.getRect(find.byType(PageView));
+    await tester.tapAt(
+      Offset(pages.left + pages.width * fraction, pages.center.dy),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  /// Where page [index] sits across the screen, built ahead or on screen.
+  double across(WidgetTester tester, int index) =>
+      tester.getCenter(find.text('box $index', skipOffstage: false)).dx;
 
   testWidgets('opens on the first page and builds the next one ahead', (
     tester,
@@ -235,6 +255,103 @@ void main() {
     expect(moving.value, isFalse);
     expect(current(), 2);
   });
+
+  testWidgets(
+    'a tap on the right edge turns forward, on the left edge back, in the middle is reported',
+    (tester) async {
+      await showTurner(tester);
+
+      await tapAcross(tester, 0.1);
+      expect(turns, isEmpty, reason: 'nothing comes before the first page');
+
+      await tapAcross(tester, 0.9);
+      expect(current(), 1);
+
+      await tapAcross(tester, 0.1);
+      expect(current(), 0);
+
+      await tapAcross(tester, 0.5);
+      expect(taps, 1);
+      expect(turns, [1, 0], reason: 'the middle turns nothing');
+    },
+  );
+
+  testWidgets('right to left, page 1 is at the right, and a swipe to the right, the left arrow and the '
+      'left edge go forward', (tester) async {
+    await showTurner(tester, rightToLeft: true);
+    expect(across(tester, 1), lessThan(across(tester, 0)));
+
+    await tester.fling(find.byType(PageView), const Offset(400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(current(), 1);
+
+    await press(tester, LogicalKeyboardKey.arrowLeft);
+    expect(current(), 2);
+    await press(tester, LogicalKeyboardKey.arrowRight);
+    expect(current(), 1);
+
+    await tapAcross(tester, 0.1);
+    expect(current(), 2);
+    await tapAcross(tester, 0.9);
+    expect(current(), 1);
+    expect(taps, 0);
+  });
+
+  testWidgets('switching the direction keeps the page', (tester) async {
+    await showTurner(tester);
+    await press(tester, LogicalKeyboardKey.arrowRight);
+    expect(current(), 1);
+
+    await showTurner(tester, rightToLeft: true);
+    await tester.pumpAndSettle();
+
+    expect(find.text('box 1'), findsOneWidget);
+    expect(turns, [1], reason: 'no turn');
+    expect(across(tester, 2), lessThan(across(tester, 1)));
+    await press(tester, LogicalKeyboardKey.arrowLeft);
+    expect(current(), 2);
+  });
+
+  testWidgets(
+    'a zoomed page still turns by a tap on its edge, at normal size',
+    (tester) async {
+      await showTurner(tester);
+      final zoom = tester
+          .widget<InteractiveViewer>(find.byType(InteractiveViewer))
+          .transformationController!;
+      zoom.value = Matrix4.diagonal3Values(2, 2, 1);
+      await tester.pump();
+
+      await tapAcross(tester, 0.9);
+
+      expect(current(), 1);
+      expect(zoom.value.getMaxScaleOnAxis(), 1);
+    },
+  );
+
+  testWidgets(
+    'in a language written right to left, the pages still run by the mode alone',
+    (tester) async {
+      await showTurner(tester, textDirection: TextDirection.rtl);
+      expect(across(tester, 1), greaterThan(across(tester, 0)));
+
+      await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(
+        current(),
+        1,
+        reason: 'left to right, a swipe to the left goes on',
+      );
+
+      await showTurner(
+        tester,
+        rightToLeft: true,
+        textDirection: TextDirection.rtl,
+      );
+      await tester.pumpAndSettle();
+      expect(across(tester, 2), lessThan(across(tester, 1)));
+    },
+  );
 
   test('a turner without pages is a mistake', () {
     expect(

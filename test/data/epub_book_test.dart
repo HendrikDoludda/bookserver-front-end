@@ -66,6 +66,33 @@ void main() {
     expect(flowing.isFixedLayout, isFalse);
   });
 
+  test('reads whether the spine runs the pages right to left', () {
+    for (final (index, (progression, rightToLeft)) in [
+      ('rtl', true),
+      (' rtl ', true),
+      ('ltr', false),
+      ('default', false),
+      (null, false),
+    ].indexed) {
+      final book = EpubBook.open(
+        File('${folder.path}/book-$index.epub')..writeAsBytesSync(
+          epubBytes({
+            'META-INF/container.xml': containerXml(),
+            'OEBPS/content.opf': packageXml(
+              {'one': 'one.xhtml'},
+              ['one'],
+              fixedLayout: true,
+              pageProgression: progression,
+            ),
+            'OEBPS/one.xhtml': chapterXhtml('<p>One</p>'),
+          }),
+        ),
+      );
+      addTearDown(book.close);
+      expect(book.isRightToLeft, rightToLeft, reason: '$progression');
+    }
+  });
+
   test('leaves out what the spine marks as outside the reading order', () {
     final book = open({
       'META-INF/container.xml': containerXml(),

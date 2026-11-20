@@ -172,6 +172,7 @@ class _EpubReaderState extends State<EpubReader> {
     if (_fixedLayout case final fixedLayout?) {
       return PageTurner(
         count: epub.chapters.length,
+        rightToLeft: epub.isRightToLeft,
         onPageChanged: (index) => setState(() => _page = index),
         onTap: _toggleBar,
         pageBuilder: (context, index, decodeWidth) => FixedLayoutPage(

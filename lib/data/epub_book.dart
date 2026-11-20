@@ -14,6 +14,7 @@ class EpubBook {
     this._archive,
     this.chapters, {
     required this.isFixedLayout,
+    required this.isRightToLeft,
   });
 
   /// Opens the EPUB at [file]. A file that isn't a readable EPUB throws a [FormatException].
@@ -36,6 +37,7 @@ class EpubBook {
         archive,
         chapters,
         isFixedLayout: _isFixedLayout(package),
+        isRightToLeft: _isRightToLeft(package),
       );
     } on Exception catch (error) {
       input.closeSync();
@@ -53,6 +55,9 @@ class EpubBook {
 
   /// Whether the book is laid out as fixed pages, like print, rather than as text that flows.
   final bool isFixedLayout;
+
+  /// Whether the book's pages run right to left, as a manga's do.
+  final bool isRightToLeft;
 
   /// The file at [path] in the archive, or null when the book has none there.
   Uint8List? read(String path) => _bytesAt(_archive, path);
@@ -251,6 +256,14 @@ List<String> _readingOrder(String packagePath, XmlDocument package) {
   }
   return chapters;
 }
+
+/// Whether the spine runs the pages right to left: `page-progression-direction="rtl"`.
+bool _isRightToLeft(XmlDocument package) => package
+    .findAllElements('spine', namespaceUri: '*')
+    .any(
+      (spine) =>
+          spine.getAttribute('page-progression-direction')?.trim() == 'rtl',
+    );
 
 /// Whether the package file declares the book `pre-paginated`, the EPUB term for fixed pages.
 bool _isFixedLayout(XmlDocument package) => package

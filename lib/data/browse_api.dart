@@ -1,3 +1,5 @@
+import 'dart:ui' show Size;
+
 import 'package:bookserver/data/api_client.dart';
 
 class Library {
@@ -59,6 +61,46 @@ class Book {
   final int? chapter;
 }
 
+/// How a book's pages run: right to left, left to right, or top to bottom in one scrolling
+/// column.
+enum ReadingMode {
+  rtl,
+  ltr,
+  continuous;
+
+  /// The mode the server calls [value]; null for one this version of the app doesn't know.
+  static ReadingMode? fromServer(String value) => switch (value) {
+    'rtl' => rtl,
+    'ltr' => ltr,
+    'continuous' => continuous,
+    _ => null,
+  };
+}
+
+/// What the server knows about one book beyond the series' list.
+class BookDetails {
+  const BookDetails({required this.seriesId, required this.mode});
+
+  /// Null for a book outside any series.
+  final int? seriesId;
+
+  /// The mode the signed-in user reads the book in; null for one this version of the app doesn't
+  /// know, which a reader reads as its own default.
+  final ReadingMode? mode;
+}
+
+/// One page of a CBZ or image-folder book.
+class BookPage {
+  const BookPage({required this.number, this.size});
+
+  /// Counted from 1, as [pagePath] takes it.
+  final int number;
+
+  /// The picture's width and height in pixels, as the server read them from its header; null
+  /// when it couldn't.
+  final Size? size;
+}
+
 /// What a cover belongs to. A series or library without a cover of its own shows its first
 /// book's.
 enum CoverKind { book, series, library }
@@ -74,7 +116,8 @@ String pagePath(int bookId, int number) =>
     '/api/v1/books/$bookId/pages/$number';
 
 /// The way from the libraries to a book: the libraries, a library's series, a series' books in
-/// reading order, and the pages of a book made of images.
+/// reading order, a book's details and the pages of a book made of images; and the mode a series
+/// is read in.
 class BrowseApi {
   BrowseApi(this._client);
 
@@ -128,12 +171,46 @@ class BrowseApi {
     },
   );
 
-  /// The numbers of a CBZ or image-folder book's pages, in reading order.
-  Future<List<int>> pagesOf(int bookId, String sessionToken) => _list(
+  /// The series of the book [bookId] and the mode the signed-in user reads it in.
+  Future<BookDetails> book(int bookId, String sessionToken) async {
+    final json = await _client.getJson(
+      '/api/v1/books/$bookId',
+      bearer: sessionToken,
+    );
+    if (json case {
+      'series': final int? series,
+      'reading_mode': final String mode,
+    }) {
+      return BookDetails(seriesId: series, mode: ReadingMode.fromServer(mode));
+    }
+    throw const FormatException('Not a book.');
+  }
+
+  /// Makes [mode] the one the signed-in user reads every book of the series [seriesId] in.
+  Future<void> setReadingMode(
+    int seriesId,
+    ReadingMode mode,
+    String sessionToken,
+  ) async {
+    await _client.putJson(
+      '/api/v1/series/$seriesId/reading_mode',
+      body: {'mode': mode.name},
+      bearer: sessionToken,
+    );
+  }
+
+  /// The pages of a CBZ or image-folder book, in reading order.
+  Future<List<BookPage>> pagesOf(int bookId, String sessionToken) => _list(
     '/api/v1/books/$bookId/pages',
     sessionToken,
     (entry) => switch (entry) {
-      {'number': int number} => number,
+      {'number': int number, 'width': int width, 'height': int height}
+          when width > 0 && height > 0 =>
+        BookPage(
+          number: number,
+          size: Size(width.toDouble(), height.toDouble()),
+        ),
+      {'number': int number} => BookPage(number: number),
       _ => throw const FormatException('Not a page.'),
     },
   );

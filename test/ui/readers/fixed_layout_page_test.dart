@@ -308,11 +308,12 @@ span.b { font-family: Helvetica; font-size: 10px; text-decoration: underline; }'
   testWidgets(
     'a tap on a link turns to its page; on other text, it is the turner\'s',
     (tester) async {
+      // The line in the middle third, where a tap the turner gets is no page turn.
       await show(
         tester,
         FixedLayoutBook(
           open([
-            '<div style="left:100px;top:100px">Kale, <a href="p3.xhtml">11</a>, <a href="p2.xhtml">102–3</a></div>',
+            '<div style="left:400px;top:100px">Kale, <a href="p3.xhtml">11</a>, <a href="p2.xhtml">102–3</a></div>',
             '<div style="left:100px;top:100px">two</div>',
             '<div style="left:100px;top:100px">three</div>',
           ]),

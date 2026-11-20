@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:bookserver/data/api_client.dart';
 import 'package:bookserver/data/browse_api.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_server.dart';
@@ -136,17 +139,129 @@ void main() {
     }
   });
 
-  test("lists the numbers of a book's pages", () async {
+  test(
+    "lists a book's pages, each with its size where the server could read it",
+    () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer([
+          {'number': 1, 'width': 1200, 'height': 1800},
+          {'number': 2, 'width': 2400, 'height': 1800},
+          {'number': 3, 'width': null, 'height': null},
+          {'number': 4, 'width': 0, 'height': 1800},
+          {'number': 5, 'width': 1200, 'height': '1800'},
+          {'number': 6},
+        ]),
+      );
+
+      final pages = await apiFor(server).pagesOf(5, 'session-1');
+
+      expect(
+        [for (final page in pages) (page.number, page.size)],
+        [
+          (1, const Size(1200, 1800)),
+          (2, const Size(2400, 1800)),
+          (3, null),
+          (4, null),
+          (5, null),
+          (6, null),
+        ],
+      );
+      expectGet(server, '/api/v1/books/5/pages');
+    },
+  );
+
+  /// A book exactly as `GET /api/v1/books/{id}` sends one.
+  Map<String, Object?> detailsJson({int? series = 2, String mode = 'rtl'}) => {
+    ...bookJson(),
+    'series': series,
+    'reading_mode': mode,
+  };
+
+  test(
+    "reads a book's series and the mode the user reads it in, with the session",
+    () async {
+      final server = FakeServer((_) async => jsonAnswer(detailsJson()));
+
+      final details = await apiFor(server).book(7, 'session-1');
+
+      expect((details.seriesId, details.mode), (2, ReadingMode.rtl));
+      expectGet(server, '/api/v1/books/7');
+    },
+  );
+
+  test('a book outside any series has no series id', () async {
     final server = FakeServer(
-      (_) async => jsonAnswer([
-        {'number': 1},
-        {'number': 2},
-        {'number': 3},
-      ]),
+      (_) async => jsonAnswer(detailsJson(series: null, mode: 'continuous')),
     );
 
-    expect(await apiFor(server).pagesOf(5, 'session-1'), [1, 2, 3]);
-    expectGet(server, '/api/v1/books/5/pages');
+    final details = await apiFor(server).book(7, 'session-1');
+
+    expect((details.seriesId, details.mode), (null, ReadingMode.continuous));
+  });
+
+  test('reads every mode the server names, and none for one it may add', () {
+    for (final (value, mode) in [
+      ('rtl', ReadingMode.rtl),
+      ('ltr', ReadingMode.ltr),
+      ('continuous', ReadingMode.continuous),
+      ('webtoon', null),
+      ('RTL', null),
+    ]) {
+      expect(ReadingMode.fromServer(value), mode, reason: value);
+    }
+  });
+
+  test('refuses a book of another shape', () async {
+    for (final answer in <Object?>[
+      [detailsJson()],
+      {...detailsJson()}..remove('reading_mode'),
+      {...detailsJson()}..remove('series'),
+      {...detailsJson(), 'series': '2'},
+      {...detailsJson(), 'reading_mode': null},
+    ]) {
+      final server = FakeServer((_) async => jsonAnswer(answer));
+      await expectLater(
+        apiFor(server).book(7, 'session-1'),
+        throwsFormatException,
+        reason: '$answer',
+      );
+    }
+  });
+
+  test(
+    "saves the mode for a series as the server names it, with the session",
+    () async {
+      for (final (mode, name) in [
+        (ReadingMode.rtl, 'rtl'),
+        (ReadingMode.ltr, 'ltr'),
+        (ReadingMode.continuous, 'continuous'),
+      ]) {
+        final server = FakeServer((_) async => jsonAnswer({'mode': name}));
+
+        await apiFor(server).setReadingMode(3, mode, 'session-1');
+
+        final request = server.requests.single;
+        expect(request.method, 'PUT');
+        expect(request.url.path, '/api/v1/series/3/reading_mode');
+        expect(request.headers['authorization'], 'Bearer session-1');
+        expect(jsonDecode(request.body), {'mode': name});
+      }
+    },
+  );
+
+  test('a refused save throws its key', () async {
+    final server = FakeServer(
+      (_) async => jsonAnswer({'error': 'not_found'}, 404),
+    );
+
+    await expectLater(
+      apiFor(server).setReadingMode(3, ReadingMode.rtl, 'session-1'),
+      throwsA(
+        isA<ApiException>()
+            .having((error) => error.status, 'status', 404)
+            .having((error) => error.key, 'key', 'not_found'),
+      ),
+    );
   });
 
   test('names the cover of a book, a series and a library', () {
@@ -197,6 +312,7 @@ void main() {
       'pages': [
         {'number': '1'},
         {'page': 1},
+        {'number': '1', 'width': 1200, 'height': 1800},
       ],
     };
     for (final MapEntry(key: name, value: call) in calls.entries) {

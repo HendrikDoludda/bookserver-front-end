@@ -12,11 +12,13 @@ String containerXml([String packagePath = 'OEBPS/content.opf']) =>
 </container>''';
 
 /// A package file listing [items] (id → href) in its manifest and [spine] (idrefs, in reading
-/// order) in its spine, declaring the book's pages fixed when [fixedLayout] is true.
+/// order) in its spine, declaring the book's pages fixed when [fixedLayout] is true, and the
+/// spine's `page-progression-direction` [pageProgression] unless it's null.
 String packageXml(
   Map<String, String> items,
   List<String> spine, {
   bool fixedLayout = false,
+  String? pageProgression,
 }) =>
     '''<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
@@ -26,7 +28,7 @@ String packageXml(
   <manifest>
 ${[for (final MapEntry(key: id, value: href) in items.entries) '    <item id="$id" href="$href" media-type="application/xhtml+xml"/>'].join('\n')}
   </manifest>
-  <spine>
+  <spine${pageProgression == null ? '' : ' page-progression-direction="$pageProgression"'}>
 ${[for (final idref in spine) '    <itemref idref="$idref"/>'].join('\n')}
   </spine>
 </package>''';

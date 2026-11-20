@@ -5,11 +5,12 @@ import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
+import 'package:bookserver/ui/readers/reading_mode_button.dart';
 import 'package:bookserver/ui/server_image.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Reads a CBZ or image-folder book one page at a time: swiped, or turned with the arrow keys,
-/// and zoomable.
+/// Reads a CBZ or image-folder book one page at a time, zoomable, turned by a swipe, the arrow
+/// keys or a tap on either edge: right to left or left to right, as the user's mode says.
 class PageReader extends StatefulWidget {
   const PageReader({super.key, required this.session, required this.book});
 
@@ -22,7 +23,9 @@ class PageReader extends StatefulWidget {
 
 class _PageReaderState extends State<PageReader> {
   final _frame = GlobalKey<ReaderFrameState>();
-  List<int>? _numbers;
+  List<BookPage>? _pages;
+  int? _seriesId;
+  var _mode = ReadingMode.ltr;
   String? _errorKey;
   var _index = 0;
 
@@ -39,12 +42,24 @@ class _PageReaderState extends State<PageReader> {
 
   Future<void> _load() async {
     try {
-      final numbers = await widget.session.authorized(
-        (api, sessionToken) =>
-            BrowseApi(api).pagesOf(widget.book.id, sessionToken),
-      );
+      final (pages, details) = await widget.session.authorized((
+        api,
+        sessionToken,
+      ) async {
+        final browse = BrowseApi(api);
+        final pages = browse.pagesOf(widget.book.id, sessionToken);
+        final details = browse.book(widget.book.id, sessionToken);
+        // Both asked at once. Future.wait answers once both have, with the first failure if any,
+        // so a failure of the other is never left unhandled.
+        await Future.wait([pages, details]);
+        return (await pages, await details);
+      });
       if (mounted) {
-        setState(() => _numbers = numbers);
+        setState(() {
+          _pages = pages;
+          _seriesId = details.seriesId;
+          _mode = details.mode ?? ReadingMode.ltr;
+        });
       }
     } on Exception catch (error) {
       if (mounted) {
@@ -57,18 +72,24 @@ class _PageReaderState extends State<PageReader> {
 
   @override
   Widget build(BuildContext context) {
-    final numbers = _numbers;
+    final count = _pages?.length ?? 0;
     return ReaderFrame(
       key: _frame,
       title: widget.book.title,
-      status: numbers == null || numbers.isEmpty
-          ? null
-          : Text(
-              context.t('reader.page_of', {
-                'page': _index + 1,
-                'count': numbers.length,
-              }),
-            ),
+      controls: [
+        if (count > 0)
+          ReadingModeButton(
+            session: widget.session,
+            seriesId: _seriesId,
+            mode: _mode,
+            onChanged: (mode) => setState(() => _mode = mode),
+          ),
+      ],
+      status: count > 0
+          ? Text(
+              context.t('reader.page_of', {'page': _index + 1, 'count': count}),
+            )
+          : null,
       body: _body(context),
     );
   }
@@ -84,23 +105,27 @@ class _PageReaderState extends State<PageReader> {
         ),
       );
     }
-    final numbers = _numbers;
-    if (numbers == null) {
+    final pages = _pages;
+    if (pages == null) {
       return Notice(
         text: context.t('reader.opening'),
         action: const CircularProgressIndicator(),
       );
     }
-    if (numbers.isEmpty) {
+    if (pages.isEmpty) {
       return Notice(text: context.t('reader.open_failed'));
     }
     return PageTurner(
-      count: numbers.length,
+      count: pages.length,
+      rightToLeft: _mode == ReadingMode.rtl,
       onPageChanged: (index) => setState(() => _index = index),
       onTap: () => _frame.currentState?.toggleBar(),
       pageBuilder: (context, index, decodeWidth) => _Page(
         image: ResizeImage(
-          ServerImage(widget.session, pagePath(widget.book.id, numbers[index])),
+          ServerImage(
+            widget.session,
+            pagePath(widget.book.id, pages[index].number),
+          ),
           width: decodeWidth,
         ),
       ),

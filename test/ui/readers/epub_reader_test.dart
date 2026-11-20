@@ -428,6 +428,40 @@ void main() {
     );
   });
 
+  testWidgets(
+    'a fixed-layout book whose spine runs right to left turns its pages that way',
+    (tester) async {
+      final rightToLeftBook = epubBytes({
+        'META-INF/container.xml': containerXml(),
+        'OEBPS/content.opf': packageXml(
+          {'p1': 'p1.xhtml', 'p2': 'p2.xhtml'},
+          ['p1', 'p2'],
+          fixedLayout: true,
+          pageProgression: 'rtl',
+        ),
+        'OEBPS/p1.xhtml': fixedPageXhtml(
+          '<div style="left:100px;top:100px">The first page</div>',
+        ),
+        'OEBPS/p2.xhtml': fixedPageXhtml(
+          '<div style="left:100px;top:100px">The second page</div>',
+        ),
+      });
+      await openReader(
+        tester,
+        fileServer(() async => file(rightToLeftBook)),
+        find.text('The first page', findRichText: true),
+      );
+
+      expect(
+        tester.widget<PageTurner>(find.byType(PageTurner)).rightToLeft,
+        isTrue,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pumpAndSettle();
+      expect(find.text('The second page', findRichText: true), findsOneWidget);
+    },
+  );
+
   testWidgets('shows a picture from the book, and none from anywhere else', (
     tester,
   ) async {

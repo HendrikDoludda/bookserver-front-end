@@ -1,8 +1,11 @@
+import 'package:bookserver/ui/readers/tap_zones.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Shows [count] pages one at a time, swiped or turned with the arrow keys, zoomable.
+/// Shows [count] pages one at a time, zoomable, turned by a swipe, the arrow keys or a tap on
+/// either edge. Right to left with [rightToLeft]: then page 1 is at the right, and a swipe to the
+/// right, the left arrow and the left edge go forward.
 ///
 /// [pageBuilder] builds page `index`; a picture on it is decoded at most `decodeWidth` pixels
 /// wide.
@@ -11,6 +14,7 @@ class PageTurner extends StatefulWidget {
     super.key,
     required this.count,
     required this.pageBuilder,
+    this.rightToLeft = false,
     this.onPageChanged,
     this.onTap,
   }) : assert(count > 0);
@@ -19,10 +23,13 @@ class PageTurner extends StatefulWidget {
   final Widget Function(BuildContext context, int index, int decodeWidth)
   pageBuilder;
 
+  /// Whether the pages run right to left, as a manga's do.
+  final bool rightToLeft;
+
   /// Called with the index of the page a turn lands on.
   final ValueChanged<int>? onPageChanged;
 
-  /// Called for a tap on a page that nothing on it took, such as a link.
+  /// Called for a tap in the middle of a page that nothing on it took, such as a link.
   final VoidCallback? onTap;
 
   /// The page turner that shows [context], to turn its pages from inside one.
@@ -115,14 +122,34 @@ class PageTurnerState extends State<PageTurner> {
     widget.onPageChanged?.call(index);
   }
 
+  void _tapped(TapUpDetails details) {
+    final width = context.size?.width;
+    if (width == null) {
+      return;
+    }
+    final dx = details.localPosition.dx;
+    switch (tapZoneAt(dx, width, rightToLeft: widget.rightToLeft)) {
+      case TapZone.previous:
+        _turn(-1);
+      case TapZone.next:
+        _turn(1);
+      case TapZone.middle:
+        widget.onTap?.call();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // The turn that goes to the right on screen.
+    final rightward = widget.rightToLeft ? -1 : 1;
     return GestureDetector(
-      onTap: widget.onTap,
+      onTapUp: _tapped,
       child: CallbackShortcuts(
         bindings: {
-          const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _turn(-1),
-          const SingleActivator(LogicalKeyboardKey.arrowRight): () => _turn(1),
+          const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+              _turn(-rightward),
+          const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+              _turn(rightward),
         },
         child: Focus(
           autofocus: true,
@@ -130,6 +157,11 @@ class PageTurnerState extends State<PageTurner> {
             onNotification: _scrolled,
             child: PageView.builder(
               controller: _pages,
+              // A PageView also runs right to left in a language written that way; the pages
+              // follow the reading mode alone.
+              reverse:
+                  widget.rightToLeft !=
+                  (Directionality.of(context) == TextDirection.rtl),
               // Builds the page on either side as well, so the next one is loaded before it's
               // turned to.
               allowImplicitScrolling: true,
