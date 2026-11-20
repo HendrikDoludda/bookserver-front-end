@@ -1,23 +1,28 @@
+import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/home_screen.dart';
 import 'package:bookserver/ui/login_screen.dart';
+import 'package:bookserver/ui/preferences_scope.dart';
 import 'package:bookserver/ui/server_screen.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// The root: the catalog [catalogs] holds and the theme above every screen, and the screen for
-/// the session's stage, with nothing pushed on top of it once the session has ended.
+/// The root: the device's [preferences], the catalog [catalogs] holds and the theme above every
+/// screen, and the screen for the session's stage, with nothing pushed on top of it once the
+/// session has ended.
 class BookserverApp extends StatefulWidget {
   const BookserverApp({
     super.key,
     required this.catalogs,
     required this.session,
+    required this.preferences,
   });
 
   final CatalogController catalogs;
   final SessionController session;
+  final PreferencesController preferences;
 
   @override
   State<BookserverApp> createState() => _BookserverAppState();
@@ -53,6 +58,13 @@ class _BookserverAppState extends State<BookserverApp> {
 
   @override
   Widget build(BuildContext context) {
+    return PreferencesScope(
+      controller: widget.preferences,
+      child: _catalogAndScreens(),
+    );
+  }
+
+  Widget _catalogAndScreens() {
     return ListenableBuilder(
       listenable: widget.catalogs,
       builder: (context, _) {

@@ -1,5 +1,6 @@
 import 'package:bookserver/app.dart';
 import 'package:bookserver/data/catalog_store.dart';
+import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/data/session_store.dart';
 import 'package:bookserver/i18n/catalog.dart';
@@ -24,5 +25,13 @@ Future<void> main() async {
     session: session,
   );
   await catalogs.load();
-  runApp(BookserverApp(catalogs: catalogs, session: session));
+  final preferences = PreferencesController(store: FilePreferencesStore());
+  await preferences.load();
+  runApp(
+    BookserverApp(
+      catalogs: catalogs,
+      session: session,
+      preferences: preferences,
+    ),
+  );
 }

@@ -1,16 +1,19 @@
 import 'dart:convert';
 
+import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/code_and_password_screen.dart';
 import 'package:bookserver/ui/qr_code.dart';
 import 'package:bookserver/ui/recovery_codes_screen.dart';
 import 'package:bookserver/ui/settings_screen.dart';
 import 'package:bookserver/ui/two_factor_setup_screen.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
 
 import '../support/fake_server.dart';
+import '../support/memory_preferences_store.dart';
 import '../support/screens.dart';
 
 void main() {
@@ -28,6 +31,7 @@ void main() {
   Future<void> atSettings(
     WidgetTester tester, {
     bool followCatalog = false,
+    PreferencesController? preferences,
   }) async {
     await pumpApp(
       tester,
@@ -35,6 +39,7 @@ void main() {
       store: signedInStore(),
       server: server.fake,
       followCatalog: followCatalog,
+      preferences: preferences,
     );
     await tester.pumpAndSettle();
     await chooseInUserMenu(tester, english, 'menu.settings');
@@ -363,6 +368,101 @@ void main() {
       );
       expect(find.byType(CodeAndPasswordScreen), findsOneWidget);
       expect(server.twoFactorOn, isTrue);
+    });
+  });
+
+  group('handedness', () {
+    void onPlatform(TargetPlatform platform) {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    }
+
+    Finder heading() => find.text(english.text('settings.handedness'));
+
+    /// The handedness choice, scrolled into view: it is the last thing on the screen.
+    Future<Set<Handedness>> shown(WidgetTester tester) async {
+      await tester.scrollUntilVisible(
+        find.byType(SegmentedButton<Handedness>),
+        100,
+        scrollable: find
+            .descendant(
+              of: find.byType(SettingsScreen),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      // The scroll lands in the next frame; a tap before it aims at the old place.
+      await tester.pumpAndSettle();
+      return tester
+          .widget<SegmentedButton<Handedness>>(
+            find.byType(SegmentedButton<Handedness>),
+          )
+          .selected;
+    }
+
+    Future<void> chooseLeft(WidgetTester tester) async {
+      await shown(tester);
+      await tester.tap(find.text(english.text('settings.left_handed')));
+      await tester.pumpAndSettle();
+    }
+
+    for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+      testWidgets(
+        'on ${platform.name}: right-handed until left is chosen, which the device keeps',
+        (tester) async {
+          onPlatform(platform);
+          final store = MemoryPreferencesStore();
+          final preferences = PreferencesController(store: store);
+          await atSettings(tester, preferences: preferences);
+
+          expect(await shown(tester), {Handedness.right});
+          expect(heading(), findsOneWidget);
+
+          await chooseLeft(tester);
+
+          expect(await shown(tester), {Handedness.left});
+          expect(preferences.preferences.handedness, Handedness.left);
+          expect(store.preferences?.handedness, Handedness.left);
+          expect(
+            server.fake.requests.where((request) => request.method == 'PUT'),
+            isEmpty,
+            reason: 'kept on the device, not on the server',
+          );
+        },
+      );
+    }
+
+    for (final platform in [
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+      TargetPlatform.linux,
+    ]) {
+      testWidgets('not on ${platform.name}', (tester) async {
+        onPlatform(platform);
+        await atSettings(tester);
+
+        expect(heading(), findsNothing);
+        expect(find.byType(SegmentedButton<Handedness>), findsNothing);
+      });
+    }
+
+    testWidgets('the choice outlasts signing out', (tester) async {
+      final store = MemoryPreferencesStore();
+      final preferences = PreferencesController(store: store);
+      await atSettings(tester, preferences: preferences);
+      await chooseLeft(tester);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await chooseInUserMenu(tester, english, 'menu.sign_out');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(english.text('login.username_or_email')),
+        findsOneWidget,
+      );
+      expect(preferences.preferences.handedness, Handedness.left);
+      expect(store.preferences?.handedness, Handedness.left);
     });
   });
 }

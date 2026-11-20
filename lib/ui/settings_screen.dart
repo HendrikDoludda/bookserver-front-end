@@ -1,4 +1,5 @@
 import 'package:bookserver/data/locales_api.dart';
+import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/data/settings_api.dart';
 import 'package:bookserver/data/two_factor_api.dart';
@@ -7,6 +8,8 @@ import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/code_and_password_screen.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
+import 'package:bookserver/ui/platform.dart';
+import 'package:bookserver/ui/preferences_scope.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:bookserver/ui/two_factor_setup_screen.dart';
 import 'package:material_ui/material_ui.dart';
@@ -15,7 +18,8 @@ import 'package:material_ui/material_ui.dart';
 const _followDevice = '';
 
 /// The signed-in user's settings: the language the app shows, saved on the server so every
-/// device and every mail use it.
+/// device and every mail use it; two-factor authentication; and on a phone or tablet the hand
+/// that holds it, kept on the device.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
@@ -213,6 +217,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: Spacing.large),
               _TwoFactorSection(status: twoFactor, open: _openTwoFactor),
             ],
+            if (isPhoneOrTablet()) ...[
+              const SizedBox(height: Spacing.large),
+              const _HandednessSection(),
+            ],
           ],
         ),
       ),
@@ -287,6 +295,44 @@ class _TwoFactorSection extends StatelessWidget {
               child: Text(context.t('two_factor.turn_on')),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The hand that holds the device, kept on it: the reader's buttons gather on that side.
+class _HandednessSection extends StatelessWidget {
+  const _HandednessSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final preferences = PreferencesScope.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.medium),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: Spacing.small,
+        children: [
+          Text(
+            context.t('settings.handedness'),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          SegmentedButton<Handedness>(
+            segments: [
+              ButtonSegment(
+                value: Handedness.left,
+                label: Text(context.t('settings.left_handed')),
+              ),
+              ButtonSegment(
+                value: Handedness.right,
+                label: Text(context.t('settings.right_handed')),
+              ),
+            ],
+            selected: {preferences.preferences.handedness},
+            onSelectionChanged: (choice) =>
+                preferences.setHandedness(choice.single),
+          ),
         ],
       ),
     );

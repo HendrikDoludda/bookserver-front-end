@@ -1,3 +1,4 @@
+import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../support/memory_preferences_store.dart';
 import '../../support/screens.dart';
 
 void main() {
@@ -29,28 +31,40 @@ void main() {
     onPressed: () => controlTaps++,
   );
 
-  /// Opens a frame around [body] over a first screen, as a book opens over its series.
+  /// Opens a frame around [body] over a first screen, as a book opens over its series; in
+  /// [textDirection] when one is given.
   Future<void> openFrame(
     WidgetTester tester, {
     required Widget body,
     List<Widget> controls = const [],
     Widget? status,
+    PreferencesController? preferences,
+    TextDirection? textDirection,
   }) async {
     await pumpScreen(
       tester,
       catalog: english,
+      preferences: preferences,
       screen: Builder(
         builder: (context) => Scaffold(
           body: Center(
             child: TextButton(
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => ReaderFrame(
-                    title: 'A Book',
-                    controls: controls,
-                    status: status,
-                    body: body,
-                  ),
+                  builder: (_) {
+                    final frame = ReaderFrame(
+                      title: 'A Book',
+                      controls: controls,
+                      status: status,
+                      body: body,
+                    );
+                    return textDirection == null
+                        ? frame
+                        : Directionality(
+                            textDirection: textDirection,
+                            child: frame,
+                          );
+                  },
                 ),
               ),
               child: const Text('open'),
@@ -113,6 +127,70 @@ void main() {
       );
     });
   }
+
+  Future<PreferencesController> leftHanded() async {
+    final preferences = PreferencesController(store: MemoryPreferencesStore());
+    await preferences.setHandedness(Handedness.left);
+    return preferences;
+  }
+
+  testWidgets(
+    "left-handed, the bottom bar's controls gather at its left end; a change shows at once",
+    (tester) async {
+      onPlatform(TargetPlatform.android);
+      final preferences = await leftHanded();
+      await openFrame(
+        tester,
+        body: pages,
+        controls: [control],
+        preferences: preferences,
+      );
+      final width = tester.getSize(find.byType(ReaderFrame)).width;
+
+      expect(
+        tester.getCenter(find.byTooltip('Control')).dx,
+        lessThan(width / 2),
+      );
+
+      await preferences.setHandedness(Handedness.right);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getCenter(find.byTooltip('Control')).dx,
+        greaterThan(width / 2),
+      );
+    },
+  );
+
+  testWidgets(
+    "the thumb's side is the physical one in a right-to-left language",
+    (tester) async {
+      onPlatform(TargetPlatform.iOS);
+      await openFrame(
+        tester,
+        body: pages,
+        controls: [control],
+        preferences: await leftHanded(),
+        textDirection: TextDirection.rtl,
+      );
+
+      expect(
+        tester.getCenter(find.byTooltip('Control')).dx,
+        lessThan(tester.getSize(find.byType(ReaderFrame)).width / 2),
+      );
+    },
+  );
+
+  testWidgets('on a desktop the hand moves nothing', (tester) async {
+    onPlatform(TargetPlatform.macOS);
+    await openFrame(
+      tester,
+      body: pages,
+      controls: [control],
+      preferences: await leftHanded(),
+    );
+
+    expect(inTopBar(find.byTooltip('Control')), findsOneWidget);
+  });
 
   testWidgets('without controls a phone has no bar at the bottom', (
     tester,

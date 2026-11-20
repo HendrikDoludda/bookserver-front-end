@@ -1,16 +1,19 @@
 import 'package:bookserver/app.dart';
 import 'package:bookserver/data/auth_api.dart';
+import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/data/session.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/i18n/catalog_controller.dart';
 import 'package:bookserver/ui/cover_grid.dart';
+import 'package:bookserver/ui/preferences_scope.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
 
 import 'fake_server.dart';
 import 'memory_catalog_store.dart';
+import 'memory_preferences_store.dart';
 import 'memory_session_store.dart';
 
 const testAddress = 'https://books.example.ts.net';
@@ -111,7 +114,8 @@ Future<void> chooseInUserMenu(
 
 /// Starts the whole app as `main()` does, on [store]'s record and [server]. The app shows [catalog]
 /// throughout, unless [followCatalog]: then [catalog] is the built-in English and the app follows
-/// the session to [server]'s catalog, whose requests the test answers.
+/// the session to [server]'s catalog, whose requests the test answers. Without [preferences], the
+/// device's are the defaults, kept in memory.
 Future<SessionController> pumpApp(
   WidgetTester tester, {
   required Catalog catalog,
@@ -119,6 +123,7 @@ Future<SessionController> pumpApp(
   required FakeServer server,
   bool allowHttp = true,
   bool followCatalog = false,
+  PreferencesController? preferences,
 }) async {
   final session = SessionController(
     store: store,
@@ -136,19 +141,32 @@ Future<SessionController> pumpApp(
   if (followCatalog) {
     await catalogs.load();
   }
-  await tester.pumpWidget(BookserverApp(catalogs: catalogs, session: session));
+  await tester.pumpWidget(
+    BookserverApp(
+      catalogs: catalogs,
+      session: session,
+      preferences:
+          preferences ?? PreferencesController(store: MemoryPreferencesStore()),
+    ),
+  );
   return session;
 }
 
-/// Shows one screen under the catalog, outside the app's stage switch.
+/// Shows one screen under the catalog and the device's [preferences] — the defaults without
+/// them — outside the app's stage switch.
 Future<void> pumpScreen(
   WidgetTester tester, {
   required Catalog catalog,
   required Widget screen,
+  PreferencesController? preferences,
 }) => tester.pumpWidget(
-  CatalogScope(
-    catalog: catalog,
-    child: MaterialApp(home: screen),
+  PreferencesScope(
+    controller:
+        preferences ?? PreferencesController(store: MemoryPreferencesStore()),
+    child: CatalogScope(
+      catalog: catalog,
+      child: MaterialApp(home: screen),
+    ),
   ),
 );
 

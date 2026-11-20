@@ -1,4 +1,6 @@
+import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/ui/platform.dart';
+import 'package:bookserver/ui/preferences_scope.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -6,7 +8,7 @@ import 'package:material_ui/material_ui.dart';
 /// lie over the pages and hide while reading, and [status] in a strip under the pages.
 ///
 /// On a desktop one bar at the top holds all of it. On a phone or tablet the [controls] have a bar
-/// at the bottom, within reach of the thumb.
+/// at the bottom, gathered at the end on the side of the hand that holds the device.
 class ReaderFrame extends StatefulWidget {
   const ReaderFrame({
     super.key,
@@ -55,6 +57,8 @@ class ReaderFrameState extends State<ReaderFrame> {
   @override
   Widget build(BuildContext context) {
     final controlsBelow = isPhoneOrTablet() && widget.controls.isNotEmpty;
+    final leftHanded =
+        PreferencesScope.of(context).preferences.handedness == Handedness.left;
     final barHeight = AppBarTheme.of(context).toolbarHeight ?? kToolbarHeight;
     return Scaffold(
       body: SafeArea(
@@ -105,9 +109,11 @@ class ReaderFrameState extends State<ReaderFrame> {
                           child: SizedBox(
                             height: barHeight,
                             child: Row(
-                              // Placed by physical side, the side of the thumb.
+                              // By physical side: a thumb is on the left in any language.
                               textDirection: TextDirection.ltr,
-                              mainAxisAlignment: MainAxisAlignment.end,
+                              mainAxisAlignment: leftHanded
+                                  ? MainAxisAlignment.start
+                                  : MainAxisAlignment.end,
                               children: widget.controls,
                             ),
                           ),
