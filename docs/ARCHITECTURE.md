@@ -70,7 +70,8 @@
 
 ## Builds
 - An Android release build is signed with the release key `android/key.properties` names; the file and the keystore stay outside git, and without the file a release build stops. One universal APK, for every phone.
-- Each platform's release build and how it reaches a device is in its run doc: [android](run-deploy/android.md), [macos](run-deploy/macos.md), [windows](run-deploy/windows.md), [linux](run-deploy/linux.md).
+- Each platform's release build and how it reaches a device is in its run doc: [android](run-deploy/android.md), [ios](run-deploy/ios.md), [macos](run-deploy/macos.md), [windows](run-deploy/windows.md), [linux](run-deploy/linux.md).
+- iOS builds sign with the developer's free personal Apple team that the project names, and only on a Mac whose Xcode has that account; macOS builds sign ad hoc until 73's signing tasks.
 - Windows builds on a Windows PC. Linux builds in Docker (`docker/linux.Dockerfile`), on any machine, and only the bundle leaves the container; its ignore file keeps the Mac's build output and every signing secret out of the image.
 
 ## Tests
