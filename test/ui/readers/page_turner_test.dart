@@ -1,5 +1,6 @@
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
+import 'package:bookserver/ui/readers/zoom.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -17,9 +18,11 @@ void main() {
   /// The pages the turner said it landed on, in order.
   final turns = <int>[];
   var taps = 0;
+  var pinches = 0;
   setUp(() {
     turns.clear();
     taps = 0;
+    pinches = 0;
   });
 
   /// The page on screen, as the turner reported it.
@@ -33,6 +36,8 @@ void main() {
     int count = 3,
     bool rightToLeft = false,
     TextDirection textDirection = TextDirection.ltr,
+    ZoomStep initialZoom = ZoomStep.fitPage,
+    double? Function(int index)? pageShape,
   }) async {
     final builds = <(int, int)>[];
     await pumpScreen(
@@ -44,8 +49,11 @@ void main() {
           body: PageTurner(
             count: count,
             rightToLeft: rightToLeft,
+            initialZoom: initialZoom,
+            pageShape: pageShape,
             onPageChanged: turns.add,
             onTap: () => taps++,
+            onPinch: () => pinches++,
             pageBuilder: (context, index, decodeWidth) {
               builds.add((index, decodeWidth));
               return SizedBox.expand(child: Center(child: Text('box $index')));
@@ -74,6 +82,22 @@ void main() {
   /// Where page [index] sits across the screen, built ahead or on screen.
   double across(WidgetTester tester, int index) =>
       tester.getCenter(find.text('box $index', skipOffstage: false)).dx;
+
+  /// The zoom every page shows at.
+  Matrix4 zoom(WidgetTester tester) => tester
+      .widget<InteractiveViewer>(find.byType(InteractiveViewer))
+      .transformationController!
+      .value;
+
+  PageTurnerState turner(WidgetTester tester) =>
+      tester.state<PageTurnerState>(find.byType(PageTurner));
+
+  Size window(WidgetTester tester) => tester.getSize(find.byType(PageTurner));
+
+  // A page 2:3 and a spread 2:1; in the test window, 800 × 600, the spread is as wide as the
+  // window when fitted whole.
+  const shapes = [2 / 3, 2.0, 2 / 3];
+  double shapeOf(int index) => shapes[index];
 
   testWidgets('opens on the first page and builds the next one ahead', (
     tester,
@@ -374,6 +398,194 @@ void main() {
     expect(turns, isEmpty, reason: 'nothing after the last page');
     await press(tester, LogicalKeyboardKey.arrowLeft);
     expect(current(), 1);
+  });
+
+  testWidgets(
+    'a zoom step shows the page on screen at once, and every page a turn lands on',
+    (tester) async {
+      await showTurner(tester, pageShape: shapeOf);
+
+      turner(tester).zoomTo(ZoomStep.fitWidth);
+      await tester.pump();
+      expect(zoom(tester), zoomOf(ZoomStep.fitWidth, 2 / 3, window(tester)));
+
+      await press(tester, LogicalKeyboardKey.arrowRight);
+      expect(current(), 1);
+      expect(
+        zoom(tester),
+        Matrix4.identity(),
+        reason: 'the spread fitted whole is already as wide as the window',
+      );
+
+      await press(tester, LogicalKeyboardKey.arrowRight);
+      expect(current(), 2);
+      expect(zoom(tester), zoomOf(ZoomStep.fitWidth, 2 / 3, window(tester)));
+
+      turner(tester).turnTo(0);
+      await tester.pumpAndSettle();
+      expect(zoom(tester), zoomOf(ZoomStep.fitWidth, 2 / 3, window(tester)));
+    },
+  );
+
+  testWidgets('a swipe lands on the next page at the zoom step', (
+    tester,
+  ) async {
+    await showTurner(tester, pageShape: shapeOf);
+    turner(tester).turnTo(1);
+    turner(tester).zoomTo(ZoomStep.fitWidth);
+    await tester.pumpAndSettle();
+    expect(
+      zoom(tester),
+      Matrix4.identity(),
+      reason: 'the spread fitted whole, which a swipe can leave',
+    );
+
+    await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
+    await tester.pumpAndSettle();
+
+    expect(current(), 2);
+    expect(zoom(tester), zoomOf(ZoomStep.fitWidth, 2 / 3, window(tester)));
+  });
+
+  testWidgets('a turner opens at the zoom step it is given', (tester) async {
+    await showTurner(tester, pageShape: shapeOf, initialZoom: ZoomStep.x200);
+    await tester.pump();
+
+    expect(zoom(tester), zoomOf(ZoomStep.x200, 2 / 3, window(tester)));
+  });
+
+  testWidgets(
+    'a pinch is reported and the next turn undoes it; a drag on a zoomed page is no pinch',
+    (tester) async {
+      await showTurner(tester, pageShape: shapeOf);
+      final viewer = tester.widget<InteractiveViewer>(
+        find.byType(InteractiveViewer),
+      );
+      final controller = viewer.transformationController!;
+
+      viewer.onInteractionStart!(ScaleStartDetails());
+      controller.value = Matrix4.diagonal3Values(2, 2, 1);
+      viewer.onInteractionEnd!(ScaleEndDetails());
+      expect(pinches, 1);
+
+      viewer.onInteractionStart!(ScaleStartDetails());
+      controller.value = Matrix4.diagonal3Values(2, 2, 1)
+        ..setTranslationRaw(-100, -50, 0);
+      viewer.onInteractionEnd!(ScaleEndDetails());
+      expect(pinches, 1, reason: 'the same scale, moved');
+
+      await press(tester, LogicalKeyboardKey.arrowRight);
+      expect(zoom(tester), Matrix4.identity());
+    },
+  );
+
+  testWidgets('a real pinch on a page zooms it and is reported', (
+    tester,
+  ) async {
+    await showTurner(tester);
+    final middle = tester.getCenter(find.byType(PageView));
+
+    // Apart up and down, so no sideways swipe takes the gesture.
+    final top = await tester.startGesture(middle - const Offset(0, 40));
+    final bottom = await tester.startGesture(middle + const Offset(0, 40));
+    await tester.pump();
+    await top.moveBy(const Offset(0, -60));
+    await bottom.moveBy(const Offset(0, 60));
+    await tester.pump();
+    await top.up();
+    await bottom.up();
+    await tester.pumpAndSettle();
+
+    expect(zoom(tester).getMaxScaleOnAxis(), greaterThan(1.01));
+    expect(pinches, 1);
+    expect(turns, isEmpty);
+  });
+
+  // Page 0, 2:3, fitted whole in the test window, 800 × 600.
+  const fittedPage = Rect.fromLTWH(200, 0, 400, 600);
+
+  testWidgets(
+    'a gesture that would move a zoomed page past its edges stops it there',
+    (tester) async {
+      await showTurner(tester, pageShape: shapeOf);
+      final controller = tester
+          .widget<InteractiveViewer>(find.byType(InteractiveViewer))
+          .transformationController!;
+
+      controller.value = Matrix4.diagonal3Values(3, 3, 1)
+        ..setTranslationRaw(500, 400, 0);
+      expect(
+        MatrixUtils.transformRect(controller.value, fittedPage),
+        const Rect.fromLTWH(0, 0, 1200, 1800),
+      );
+
+      controller.value = Matrix4.diagonal3Values(3, 3, 1)
+        ..setTranslationRaw(-5000, -5000, 0);
+      expect(
+        MatrixUtils.transformRect(controller.value, fittedPage),
+        const Rect.fromLTWH(-400, -1200, 1200, 1800),
+      );
+    },
+  );
+
+  testWidgets(
+    'at fit width a sideways drag moves the page no way and turns nothing',
+    (tester) async {
+      await showTurner(tester, pageShape: shapeOf);
+      turner(tester).zoomTo(ZoomStep.fitWidth);
+      await tester.pump();
+
+      for (final by in [const Offset(300, 0), const Offset(-300, 0)]) {
+        await tester.drag(find.byType(PageView), by);
+        await tester.pumpAndSettle();
+
+        final shown = MatrixUtils.transformRect(zoom(tester), fittedPage);
+        expect(shown.left, moreOrLessEquals(0), reason: '$by');
+        expect(shown.right, moreOrLessEquals(800), reason: '$by');
+      }
+      expect(turns, isEmpty);
+    },
+  );
+
+  testWidgets('pinching reaches 4×, past the largest step', (tester) async {
+    await showTurner(tester);
+
+    expect(
+      tester.widget<InteractiveViewer>(find.byType(InteractiveViewer)).maxScale,
+      4,
+    );
+  });
+
+  testWidgets('a step that depends on the window follows it when it changes', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    await showTurner(tester, pageShape: shapeOf);
+    turner(tester).zoomTo(ZoomStep.fitWidth);
+    await tester.pump();
+
+    tester.view.physicalSize = const Size(1500, 1800);
+    await tester.pump();
+    await tester.pump();
+
+    expect(window(tester), const Size(500, 600));
+    expect(zoom(tester), zoomOf(ZoomStep.fitWidth, 2 / 3, window(tester)));
+  });
+
+  testWidgets('a page wider than the window starts on the side reading starts, and moves there when the '
+      'direction changes', (tester) async {
+    await showTurner(tester, pageShape: shapeOf);
+    turner(tester).zoomTo(ZoomStep.x300);
+    await tester.pump();
+    expect(zoom(tester), zoomOf(ZoomStep.x300, 2 / 3, window(tester)));
+
+    await showTurner(tester, pageShape: shapeOf, rightToLeft: true);
+    await tester.pump();
+
+    expect(
+      zoom(tester),
+      zoomOf(ZoomStep.x300, 2 / 3, window(tester), rightToLeft: true),
+    );
   });
 
   test('a turner without pages is a mistake', () {

@@ -7,6 +7,7 @@ import 'package:bookserver/ui/readers/page_column.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:bookserver/ui/readers/reading_mode_button.dart';
+import 'package:bookserver/ui/readers/zoom.dart';
 import 'package:bookserver/ui/server_image.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -24,11 +25,17 @@ class PageReader extends StatefulWidget {
 
 class _PageReaderState extends State<PageReader> {
   final _frame = GlobalKey<ReaderFrameState>();
+  final _turner = GlobalKey<PageTurnerState>();
   List<BookPage>? _pages;
+  List<double> _shapes = const [];
   int? _seriesId;
   var _mode = ReadingMode.ltr;
   String? _errorKey;
   var _index = 0;
+
+  /// The zoom step the pages show at while the book is open, and whether a pinch has left it.
+  var _zoom = ZoomStep.fitPage;
+  var _pinched = false;
 
   @override
   void initState() {
@@ -58,6 +65,7 @@ class _PageReaderState extends State<PageReader> {
       if (mounted) {
         setState(() {
           _pages = pages;
+          _shapes = pageShapes([for (final page in pages) page.size]);
           _seriesId = details.seriesId;
           _mode = details.mode ?? ReadingMode.ltr;
         });
@@ -69,6 +77,14 @@ class _PageReaderState extends State<PageReader> {
         );
       }
     }
+  }
+
+  void _setZoom(ZoomStep step) {
+    setState(() {
+      _zoom = step;
+      _pinched = false;
+    });
+    _turner.currentState?.zoomTo(step);
   }
 
   @override
@@ -85,6 +101,8 @@ class _PageReaderState extends State<PageReader> {
             mode: _mode,
             onChanged: (mode) => setState(() => _mode = mode),
           ),
+        if (count > 0 && _mode != ReadingMode.continuous)
+          ZoomButton(step: _pinched ? null : _zoom, onChanged: _setZoom),
       ],
       status: count > 0
           ? Text(
@@ -125,7 +143,11 @@ class _PageReaderState extends State<PageReader> {
         width: decodeWidth,
       ),
     );
-    void pageChanged(int index) => setState(() => _index = index);
+    // A turn shows the next page at the zoom step again.
+    void pageChanged(int index) => setState(() {
+      _index = index;
+      _pinched = false;
+    });
     void toggleBar() => _frame.currentState?.toggleBar();
     // Either one takes over at the page the other was on.
     if (_mode == ReadingMode.continuous) {
@@ -138,11 +160,15 @@ class _PageReaderState extends State<PageReader> {
       );
     }
     return PageTurner(
+      key: _turner,
       count: pages.length,
       initialIndex: _index,
       rightToLeft: _mode == ReadingMode.rtl,
+      initialZoom: _zoom,
+      pageShape: (index) => _shapes[index],
       onPageChanged: pageChanged,
       onTap: toggleBar,
+      onPinch: () => setState(() => _pinched = true),
       pageBuilder: page,
     );
   }

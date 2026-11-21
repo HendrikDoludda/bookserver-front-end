@@ -8,6 +8,7 @@ import 'package:bookserver/ui/readers/open_book.dart';
 import 'package:bookserver/ui/readers/page_column.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
+import 'package:bookserver/ui/readers/zoom.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -135,6 +136,41 @@ void main() {
       isTrue,
     );
   }
+
+  final zoomEntries = find.byWidgetPredicate(
+    (widget) => widget is CheckedPopupMenuItem<ZoomStep>,
+  );
+
+  /// Opens the zoom menu in the bar and chooses the step called [label].
+  Future<void> chooseZoom(WidgetTester tester, String label) async {
+    await tester.tap(find.byTooltip(english.text('reader.zoom')));
+    await finishTurn(tester);
+    await tester.tap(
+      find.ancestor(of: find.text(label), matching: zoomEntries),
+    );
+    await finishTurn(tester);
+  }
+
+  /// The step the zoom menu has checked, null for none: opens the menu and closes it again.
+  Future<ZoomStep?> zoomShown(WidgetTester tester) async {
+    await tester.tap(find.byTooltip(english.text('reader.zoom')));
+    await finishTurn(tester);
+    final checked = [
+      for (final entry in tester.widgetList<CheckedPopupMenuItem<ZoomStep>>(
+        zoomEntries,
+      ))
+        if (entry.checked) entry.value,
+    ];
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await finishTurn(tester);
+    return checked.singleOrNull;
+  }
+
+  /// The zoom the pages show at.
+  Matrix4 pageZoom(WidgetTester tester) => tester
+      .widget<InteractiveViewer>(find.byType(InteractiveViewer))
+      .transformationController!
+      .value;
 
   /// The column's own scrolling, the outermost in it: a page's notice scrolls as well.
   ScrollPosition columnScroll(WidgetTester tester) => tester
@@ -634,5 +670,55 @@ void main() {
       tester.widget<Image>(find.byType(Image)).image,
       isA<ResizeImage>().having((image) => image.width, 'width', 2340),
     );
+  });
+
+  testWidgets('the zoom starts at fit page; a step chosen holds as the pages turn; a pinch shows none '
+      'until the next turn undoes it', (tester) async {
+    await openReader(tester, readerServer(() async => pageList(3)));
+    expect(await zoomShown(tester), ZoomStep.fitPage);
+    expect(pageZoom(tester), Matrix4.identity());
+
+    await chooseZoom(tester, english.text('reader.zoom_fit_width'));
+    // The listed pages are 1200 × 1800.
+    final fitWidth = zoomOf(
+      ZoomStep.fitWidth,
+      2 / 3,
+      tester.getSize(find.byType(PageTurner)),
+    );
+    expect(pageZoom(tester), fitWidth);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await finishTurn(tester);
+    expect(find.text(pageOf(2, 3)), findsOneWidget);
+    expect(pageZoom(tester), fitWidth, reason: 'the step holds');
+
+    final viewer = tester.widget<InteractiveViewer>(
+      find.byType(InteractiveViewer),
+    );
+    viewer.onInteractionStart!(ScaleStartDetails());
+    viewer.transformationController!.value = Matrix4.diagonal3Values(3, 3, 1);
+    viewer.onInteractionEnd!(ScaleEndDetails());
+    await tester.pump();
+    await showBars(tester, find.byType(PageTurner));
+    expect(await zoomShown(tester), isNull);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await finishTurn(tester);
+    expect(pageZoom(tester), fitWidth, reason: 'the turn undid the pinch');
+    await showBars(tester, find.byType(PageTurner));
+    expect(await zoomShown(tester), ZoomStep.fitWidth);
+  });
+
+  testWidgets('continuous scroll has no zoom', (tester) async {
+    await openReader(
+      tester,
+      readerServer(
+        () async => pageList(3),
+        book: () async => details(mode: 'continuous'),
+      ),
+    );
+
+    expect(find.byTooltip(english.text('reader.mode')), findsOneWidget);
+    expect(find.byTooltip(english.text('reader.zoom')), findsNothing);
   });
 }

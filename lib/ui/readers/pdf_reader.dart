@@ -11,6 +11,7 @@ import 'package:bookserver/ui/notice.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:bookserver/ui/readers/reading_mode_button.dart';
 import 'package:bookserver/ui/readers/tap_zones.dart';
+import 'package:bookserver/ui/readers/zoom.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pdfrx/pdfrx.dart';
@@ -40,6 +41,15 @@ class _PdfReaderState extends State<PdfReader> {
 
   String? _errorKey;
   int? _page;
+
+  /// The zoom step on screen; null before one is chosen in continuous scroll, and after a pinch.
+  ZoomStep? _zoom;
+
+  /// The step chosen in the dropdown, until a pinch leaves it: another mode's viewer opens at it.
+  ZoomStep? _chosenZoom;
+
+  /// The zoom when a drag or a pinch started, to tell them apart when it ends.
+  var _zoomAtStart = 1.0;
 
   @override
   void initState() {
@@ -97,6 +107,7 @@ class _PdfReaderState extends State<PdfReader> {
         _document = PdfDocumentRefDirect(document, autoDispose: false);
         _seriesId = details.seriesId;
         _mode = details.mode ?? ReadingMode.continuous;
+        _zoom = _startZoom(_mode);
       });
     } on Exception {
       // pdfrx wraps every cause, a lost connection as much as a damaged file.
@@ -120,7 +131,8 @@ class _PdfReaderState extends State<PdfReader> {
 
   void _toggleBar() => _frame.currentState?.toggleBar();
 
-  /// Shows [mode] in a new viewer, which opens at the page on screen.
+  /// Shows [mode] in a new viewer, which opens at the page on screen: at the step chosen, else at
+  /// that mode's own start.
   void _setMode(ReadingMode mode) {
     if (mode == _mode) {
       return;
@@ -128,7 +140,57 @@ class _PdfReaderState extends State<PdfReader> {
     setState(() {
       _mode = mode;
       _viewer = PdfViewerController();
+      _zoom = _chosenZoom ?? _startZoom(mode);
     });
+  }
+
+  void _viewerReady() {
+    if (_chosenZoom case final step?) {
+      _setZoom(step);
+    }
+  }
+
+  /// The step a viewer in [mode] opens at: a paged mode fits the page; continuous scroll opens as
+  /// pdfrx lays it out, at no step.
+  static ZoomStep? _startZoom(ReadingMode mode) =>
+      mode == ReadingMode.continuous ? null : ZoomStep.fitPage;
+
+  void _interactionStarted() {
+    _hideBar();
+    if (_viewer.isReady) {
+      _zoomAtStart = _viewer.currentZoom;
+    }
+  }
+
+  void _interactionEnded() {
+    if (_viewer.isReady &&
+        (_viewer.currentZoom / _zoomAtStart - 1).abs() > 0.01) {
+      setState(() => _zoom = _chosenZoom = null);
+    }
+  }
+
+  /// Shows the page on screen at [step]: fitted whole or to its width, or a multiple of fitted
+  /// whole around the middle of the view.
+  void _setZoom(ZoomStep step) {
+    final viewer = _viewer;
+    final page = viewer.isReady ? viewer.pageNumber : null;
+    final fit = page == null ? null : viewer.calcMatrixForFit(pageNumber: page);
+    if (page == null || fit == null) {
+      return;
+    }
+    setState(() => _zoom = _chosenZoom = step);
+    switch (step) {
+      case ZoomStep.fitPage:
+        unawaited(viewer.goTo(fit));
+      case ZoomStep.fitWidth:
+        unawaited(
+          viewer.goTo(viewer.calcMatrixFitWidthForPage(pageNumber: page)),
+        );
+      case ZoomStep.x150 || ZoomStep.x200 || ZoomStep.x300:
+        unawaited(
+          viewer.setZoom(viewer.centerPosition, fit.zoom * step.times!),
+        );
+    }
   }
 
   /// Turns [by] pages in reading order, never past either end.
@@ -159,6 +221,7 @@ class _PdfReaderState extends State<PdfReader> {
             mode: _mode,
             onChanged: _setMode,
           ),
+        if (opened) ZoomButton(step: _zoom, onChanged: _setZoom),
       ],
       status: document == null || _errorKey != null
           ? null
@@ -203,7 +266,9 @@ class _PdfReaderState extends State<PdfReader> {
         onPageChanged: _pageChanged,
         onTap: _toggleBar,
         onTurn: _turn,
-        onInteractionStart: _hideBar,
+        onInteractionStart: _interactionStarted,
+        onInteractionEnd: _interactionEnded,
+        onViewerReady: _viewerReady,
       ),
     );
   }
@@ -214,7 +279,8 @@ class _PdfReaderState extends State<PdfReader> {
 ///
 /// [onTap] is called for a single tap on the pages — in a paged mode, one in their middle third;
 /// [onTurn] with the pages to turn, forward in reading order, for an arrow key or a tap on an
-/// outer third in a paged mode; [onInteractionStart] when a drag or a pinch starts.
+/// outer third in a paged mode; [onInteractionStart] and [onInteractionEnd] when a drag or a pinch
+/// starts and ends; [onViewerReady] once the viewer has laid out its first pages.
 PdfViewerParams pdfViewerParams({
   required ReadingMode mode,
   required Color background,
@@ -222,6 +288,8 @@ PdfViewerParams pdfViewerParams({
   required VoidCallback onTap,
   required ValueChanged<int> onTurn,
   required VoidCallback onInteractionStart,
+  required VoidCallback onInteractionEnd,
+  required VoidCallback onViewerReady,
 }) {
   final paged = mode != ReadingMode.continuous;
   final rightToLeft = mode == ReadingMode.rtl;
@@ -255,6 +323,8 @@ PdfViewerParams pdfViewerParams({
     ),
     onPageChanged: onPageChanged,
     onInteractionStart: (_) => onInteractionStart(),
+    onInteractionEnd: (_) => onInteractionEnd(),
+    onViewerReady: (document, controller) => onViewerReady(),
     // pdfrx's own arrow keys only nudge a paged view, which then snaps back.
     onKey: paged
         ? (params, key, isRealKeyPress) {

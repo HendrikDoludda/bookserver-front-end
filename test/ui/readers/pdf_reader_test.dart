@@ -220,6 +220,8 @@ void main() {
     onTap: onTap ?? () {},
     onTurn: turns?.add ?? (_) {},
     onInteractionStart: () {},
+    onInteractionEnd: () {},
+    onViewerReady: () {},
   );
 
   test('scrolls one column, or shows one page at a time fitted to the window, either way', () {
@@ -390,6 +392,8 @@ void main() {
       onTap: () {},
       onTurn: (_) {},
       onInteractionStart: () {},
+      onInteractionEnd: () {},
+      onViewerReady: () {},
     );
 
     expect(params.verticalCacheExtent, 2);
@@ -412,6 +416,8 @@ void main() {
         onTap: () => taps++,
         onTurn: (_) {},
         onInteractionStart: () {},
+        onInteractionEnd: () {},
+        onViewerReady: () {},
       );
       await tester.pumpWidget(const SizedBox());
       final context = tester.element(find.byType(SizedBox));
@@ -440,8 +446,10 @@ void main() {
     },
   );
 
-  test('the start of a drag or a pinch is reported', () {
+  test('the start and the end of a drag or a pinch are reported, and the viewer being ready', () {
     var starts = 0;
+    var ends = 0;
+    var readies = 0;
     final params = pdfViewerParams(
       mode: ReadingMode.continuous,
       background: const Color(0xFF808080),
@@ -449,12 +457,22 @@ void main() {
       onTap: () {},
       onTurn: (_) {},
       onInteractionStart: () => starts++,
+      onInteractionEnd: () => ends++,
+      onViewerReady: () => readies++,
     );
 
     params.onInteractionStart!(ScaleStartDetails());
+    params.onInteractionEnd!(ScaleEndDetails());
+    params.onViewerReady!(_Document(), PdfViewerController());
 
-    expect(starts, 1);
+    expect((starts, ends, readies), (1, 1, 1));
   });
+}
+
+/// A document the viewer settings are handed but never read from.
+class _Document implements PdfDocument {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// A page of [width] × [height] points: all a layout reads of one.

@@ -1,4 +1,5 @@
 import 'package:bookserver/ui/readers/tap_zones.dart';
+import 'package:bookserver/ui/readers/zoom.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
@@ -13,9 +14,12 @@ int pageDecodeWidth(BuildContext context) =>
             2)
         .round();
 
-/// Shows [count] pages one at a time, zoomable, turned by a swipe, the arrow keys or a tap on
-/// either edge. Right to left with [rightToLeft]: then page 1 is at the right, and a swipe to the
-/// right, the left arrow and the left edge go forward.
+/// Shows [count] pages one at a time, turned by a swipe, the arrow keys or a tap on either edge.
+/// Right to left with [rightToLeft]: then page 1 is at the right, and a swipe to the right, the
+/// left arrow and the left edge go forward.
+///
+/// Every page shows at one zoom step — [initialZoom] until [PageTurnerState.zoomTo] picks another —
+/// and a pinch zooms freely on top of it until the next turn.
 ///
 /// [pageBuilder] builds page `index`; a picture on it is decoded at most `decodeWidth` pixels
 /// wide.
@@ -26,8 +30,11 @@ class PageTurner extends StatefulWidget {
     required this.pageBuilder,
     this.initialIndex = 0,
     this.rightToLeft = false,
+    this.initialZoom = ZoomStep.fitPage,
+    this.pageShape,
     this.onPageChanged,
     this.onTap,
+    this.onPinch,
   }) : assert(count > 0 && initialIndex >= 0 && initialIndex < count);
 
   final int count;
@@ -40,11 +47,21 @@ class PageTurner extends StatefulWidget {
   /// Whether the pages run right to left, as a manga's do.
   final bool rightToLeft;
 
+  /// The zoom step every page shows at first.
+  final ZoomStep initialZoom;
+
+  /// Page `index`'s width divided by its height, which fitting its width needs; where it gives
+  /// none, a page is taken to have the window's shape.
+  final double? Function(int index)? pageShape;
+
   /// Called with the index of the page a turn lands on.
   final ValueChanged<int>? onPageChanged;
 
   /// Called for a tap in the middle of a page that nothing on it took, such as a link.
   final VoidCallback? onTap;
+
+  /// Called when a pinch has left the page at another scale than its zoom step's.
+  final VoidCallback? onPinch;
 
   /// The page turner that shows [context], to turn its pages from inside one.
   static PageTurnerState of(BuildContext context) =>
@@ -61,18 +78,34 @@ class PageTurnerState extends State<PageTurner> {
   /// Whether the pages are moving: a swipe, a turn, a link's jump.
   ValueListenable<bool> get moving => _moving;
 
-  // One zoom for every page: turning the page resets it, and while a page is zoomed no swipe
+  // One zoom for every page: a turn sets it to the step, and while a page is zoomed no swipe
   // reaches the pages beside it.
-  final _zoom = TransformationController();
+  late final _zoom = _PageZoom(_keptOnPage);
 
   late var _index = widget.initialIndex;
   var _zoomed = false;
   late final int _decodeWidth = pageDecodeWidth(context);
+  late var _step = widget.initialZoom;
+
+  /// The pages' size, once they are laid out.
+  Size? _size;
+
+  /// The scale when the gesture on a page started, to tell a pinch from a drag.
+  var _scaleAtStart = 1.0;
 
   @override
   void initState() {
     super.initState();
     _zoom.addListener(_zoomChanged);
+  }
+
+  @override
+  void didUpdateWidget(PageTurner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A page wider than the window starts on the other side.
+    if (widget.rightToLeft != oldWidget.rightToLeft) {
+      _showStepSoon();
+    }
   }
 
   @override
@@ -89,6 +122,8 @@ class PageTurnerState extends State<PageTurner> {
         _moving.value = true;
       } else if (notification is ScrollEndNotification) {
         _moving.value = false;
+        // Only once a swipe has settled: a page zoomed past its width would stop it midway.
+        _showStep(_index);
       }
     }
     return false;
@@ -102,12 +137,50 @@ class PageTurnerState extends State<PageTurner> {
     }
   }
 
-  /// Goes straight to page [index], at normal size, as a link does.
+  /// Shows every page at [step] from now on, the page on screen at once.
+  void zoomTo(ZoomStep step) {
+    _step = step;
+    _showStep(_index);
+  }
+
+  void _showStep(int index) {
+    final size = _size;
+    if (size == null) {
+      return;
+    }
+    _zoom.show(
+      zoomOf(
+        _step,
+        widget.pageShape?.call(index) ?? size.aspectRatio,
+        size,
+        rightToLeft: widget.rightToLeft,
+      ),
+    );
+  }
+
+  /// [value] kept on the page on screen, as a gesture leaves it.
+  Matrix4 _keptOnPage(Matrix4 value) {
+    final size = _size;
+    if (size == null) {
+      return value;
+    }
+    final shape = widget.pageShape?.call(_index) ?? size.aspectRatio;
+    return keepOnPage(value, shape, size);
+  }
+
+  /// [_showStep] after this frame, for a change the framework reports while it builds or lays out.
+  void _showStepSoon() => WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) {
+      _showStep(_index);
+    }
+  });
+
+  /// Goes straight to page [index], at the zoom step, as a link does.
   void turnTo(int index) {
     if (index < 0 || index >= widget.count) {
       return;
     }
-    _zoom.value = Matrix4.identity();
+    _showStep(index);
     _pages.jumpToPage(index);
   }
 
@@ -116,7 +189,8 @@ class PageTurnerState extends State<PageTurner> {
     if (target < 0 || target >= widget.count) {
       return;
     }
-    _zoom.value = Matrix4.identity();
+    // At once, so the page slides in at its step.
+    _showStep(target);
     _pages.animateToPage(
       target,
       duration: Durations.medium2,
@@ -145,10 +219,31 @@ class PageTurnerState extends State<PageTurner> {
     }
   }
 
+  void _interactionEnded(ScaleEndDetails details) {
+    final scale = _zoom.value.getMaxScaleOnAxis();
+    if ((scale / _scaleAtStart - 1).abs() > 0.01) {
+      widget.onPinch?.call();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // The turn that goes to the right on screen.
     final rightward = widget.rightToLeft ? -1 : 1;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        if (size != _size) {
+          // A step such as fit width depends on the window.
+          _size = size;
+          _showStepSoon();
+        }
+        return _pagesIn(context, rightward);
+      },
+    );
+  }
+
+  Widget _pagesIn(BuildContext context, int rightward) {
     return GestureDetector(
       onTapUp: _tapped,
       child: CallbackShortcuts(
@@ -178,6 +273,11 @@ class PageTurnerState extends State<PageTurner> {
               itemBuilder: (context, index) => InteractiveViewer(
                 transformationController: _zoom,
                 minScale: 1,
+                // Room above the largest step, 300 %.
+                maxScale: 4,
+                onInteractionStart: (_) =>
+                    _scaleAtStart = _zoom.value.getMaxScaleOnAxis(),
+                onInteractionEnd: _interactionEnded,
                 child: widget.pageBuilder(context, index, _decodeWidth),
               ),
             ),
@@ -186,4 +286,18 @@ class PageTurnerState extends State<PageTurner> {
       ),
     );
   }
+}
+
+/// The zoom the pages share, kept on the page on screen however a gesture moves it.
+class _PageZoom extends TransformationController {
+  _PageZoom(this._keep);
+
+  final Matrix4 Function(Matrix4 value) _keep;
+
+  /// Shows [value] as it is: a zoom step, which keeps its page on screen already.
+  void show(Matrix4 value) => super.value = value;
+
+  // Every pinch, drag and glide after a flick writes through here.
+  @override
+  set value(Matrix4 value) => super.value = _keep(value);
 }

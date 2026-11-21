@@ -12,6 +12,7 @@ import 'package:bookserver/ui/notice.dart';
 import 'package:bookserver/ui/readers/fixed_layout_page.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
+import 'package:bookserver/ui/readers/zoom.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:material_ui/material_ui.dart';
@@ -30,6 +31,7 @@ class EpubReader extends StatefulWidget {
 
 class _EpubReaderState extends State<EpubReader> {
   final _frame = GlobalKey<ReaderFrameState>();
+  final _turner = GlobalKey<PageTurnerState>();
   File? _file;
   EpubBook? _epub;
   List<_Block> _blocks = const [];
@@ -39,6 +41,11 @@ class _EpubReaderState extends State<EpubReader> {
 
   /// The fixed-layout page on screen.
   var _page = 0;
+
+  /// The zoom step fixed-layout pages show at while the book is open, and whether a pinch has
+  /// left it.
+  var _zoom = ZoomStep.fitPage;
+  var _pinched = false;
 
   @override
   void initState() {
@@ -130,12 +137,24 @@ class _EpubReaderState extends State<EpubReader> {
 
   void _toggleBar() => _frame.currentState?.toggleBar();
 
+  void _setZoom(ZoomStep step) {
+    setState(() {
+      _zoom = step;
+      _pinched = false;
+    });
+    _turner.currentState?.zoomTo(step);
+  }
+
   @override
   Widget build(BuildContext context) {
     final epub = _epub;
     return ReaderFrame(
       key: _frame,
       title: widget.book.title,
+      controls: [
+        if (_fixedLayout != null && _errorKey == null)
+          ZoomButton(step: _pinched ? null : _zoom, onChanged: _setZoom),
+      ],
       status: epub == null || _fixedLayout == null || _errorKey != null
           ? null
           : Text(
@@ -171,9 +190,21 @@ class _EpubReaderState extends State<EpubReader> {
     }
     if (_fixedLayout case final fixedLayout?) {
       return PageTurner(
+        key: _turner,
         count: epub.chapters.length,
         rightToLeft: epub.isRightToLeft,
-        onPageChanged: (index) => setState(() => _page = index),
+        initialZoom: _zoom,
+        // A page not parsed yet takes the first page's size, as nearly every book's pages share
+        // one.
+        pageShape: (index) =>
+            (fixedLayout.prepared(index) ?? fixedLayout.prepared(0))
+                ?.size
+                .aspectRatio,
+        onPageChanged: (index) => setState(() {
+          _page = index;
+          _pinched = false;
+        }),
+        onPinch: () => setState(() => _pinched = true),
         onTap: _toggleBar,
         pageBuilder: (context, index, decodeWidth) => FixedLayoutPage(
           key: ValueKey(index),

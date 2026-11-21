@@ -9,6 +9,7 @@ import 'package:bookserver/ui/home_screen.dart';
 import 'package:bookserver/ui/readers/open_book.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
+import 'package:bookserver/ui/readers/zoom.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -461,6 +462,47 @@ void main() {
       expect(find.text('The second page', findRichText: true), findsOneWidget);
     },
   );
+
+  testWidgets("a fixed-layout book's pages zoom by the steps in the bar", (
+    tester,
+  ) async {
+    await openReader(
+      tester,
+      fileServer(() async => file(fixedBook)),
+      find.text('The first page', findRichText: true),
+    );
+
+    await tester.tap(find.byTooltip(english.text('reader.zoom')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.ancestor(
+        of: find.text(english.text('reader.zoom_fit_width')),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is CheckedPopupMenuItem<ZoomStep>,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Its pages are 1000 × 1500, as their viewport says.
+    expect(
+      tester
+          .widget<InteractiveViewer>(find.byType(InteractiveViewer))
+          .transformationController!
+          .value,
+      zoomOf(ZoomStep.fitWidth, 2 / 3, tester.getSize(find.byType(PageTurner))),
+    );
+  });
+
+  testWidgets('a flowing book has no zoom', (tester) async {
+    await openReader(
+      tester,
+      fileServer(() async => file(gatsby)),
+      firstChapter,
+    );
+
+    expect(find.byTooltip(english.text('reader.zoom')), findsNothing);
+  });
 
   testWidgets('shows a picture from the book, and none from anywhere else', (
     tester,
