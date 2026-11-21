@@ -263,4 +263,251 @@ void main() {
       ..writeAsStringSync('plain text, no zip');
     expect(() => EpubBook.open(notAZip), throwsFormatException);
   });
+
+  group('table of contents', () {
+    /// Opens a book of two chapters, `OEBPS/text/one.xhtml` and `two.xhtml`, under [name], with
+    /// [extra] files and the manifest [items] besides; [properties] and [toc] go to the package.
+    EpubBook openWithContents(
+      String name, {
+      Map<String, String> items = const {},
+      Map<String, Object> extra = const {},
+      Map<String, String> properties = const {},
+      String? toc,
+    }) {
+      final book = EpubBook.open(
+        File('${folder.path}/$name.epub')..writeAsBytesSync(
+          epubBytes({
+            'META-INF/container.xml': containerXml(),
+            'OEBPS/content.opf': packageXml(
+              {'one': 'text/one.xhtml', 'two': 'text/two.xhtml', ...items},
+              ['one', 'two'],
+              properties: properties,
+              toc: toc,
+            ),
+            'OEBPS/text/one.xhtml': chapterXhtml('<p>One</p>'),
+            'OEBPS/text/two.xhtml': chapterXhtml('<p>Two</p>'),
+            ...extra,
+          }),
+        ),
+      );
+      addTearDown(book.close);
+      return book;
+    }
+
+    const navList = '''
+<ol>
+  <li><a href="../text/one.xhtml">Chapter
+      One</a></li>
+  <li><span>Part Two</span>
+    <ol>
+      <li><a href="../text/two.xhtml#scene%202">Scene 2</a></li>
+      <li><a href="../text/two.xhtml#end">The End</a></li>
+    </ol>
+  </li>
+  <li><a href="https://example.com/more">Elsewhere</a></li>
+</ol>''';
+
+    const navEntries = [
+      TocEntry(title: 'Chapter One', file: 'OEBPS/text/one.xhtml'),
+      TocEntry(
+        title: 'Part Two',
+        children: [
+          TocEntry(
+            title: 'Scene 2',
+            file: 'OEBPS/text/two.xhtml',
+            anchor: 'scene 2',
+          ),
+          TocEntry(
+            title: 'The End',
+            file: 'OEBPS/text/two.xhtml',
+            anchor: 'end',
+          ),
+        ],
+      ),
+      TocEntry(title: 'Elsewhere'),
+    ];
+
+    const ncxPoints = '''
+<navPoint id="p1" playOrder="1">
+  <navLabel><text>One</text></navLabel><content src="text/one.xhtml"/>
+  <navPoint id="p2" playOrder="2">
+    <navLabel><text>One, part two</text></navLabel><content src="text/one.xhtml#part2"/>
+  </navPoint>
+</navPoint>
+<navPoint id="p3" playOrder="3">
+  <navLabel><text>Two</text></navLabel><content src="text/two.xhtml"/>
+</navPoint>''';
+
+    const ncxEntries = [
+      TocEntry(
+        title: 'One',
+        file: 'OEBPS/text/one.xhtml',
+        children: [
+          TocEntry(
+            title: 'One, part two',
+            file: 'OEBPS/text/one.xhtml',
+            anchor: 'part2',
+          ),
+        ],
+      ),
+      TocEntry(title: 'Two', file: 'OEBPS/text/two.xhtml'),
+    ];
+
+    Map<String, Object> navFile(String content) => {
+      'OEBPS/nav/nav.xhtml': content,
+    };
+    Map<String, Object> ncxFile(String content) => {'OEBPS/toc.ncx': content};
+
+    test(
+      "reads an EPUB 3 navigation file's contents: headings without a target, nesting, anchors, "
+      'links resolved against the file, a link out of the book going nowhere',
+      () {
+        final book = openWithContents(
+          'nav',
+          items: {'nav': 'nav/nav.xhtml'},
+          properties: {'nav': 'nav'},
+          extra: navFile(navXhtml(navList)),
+        );
+
+        expect(book.toc, navEntries);
+      },
+    );
+
+    test('reads an EPUB 2 NCX when the book has no navigation file', () {
+      final book = openWithContents(
+        'ncx',
+        items: {'ncx': 'toc.ncx'},
+        toc: 'ncx',
+        extra: ncxFile(ncxXml(ncxPoints)),
+      );
+
+      expect(book.toc, ncxEntries);
+    });
+
+    test('a book with both reads the navigation file', () {
+      final book = openWithContents(
+        'both',
+        items: {'nav': 'nav/nav.xhtml', 'ncx': 'toc.ncx'},
+        properties: {'nav': 'nav'},
+        toc: 'ncx',
+        extra: {...navFile(navXhtml(navList)), ...ncxFile(ncxXml(ncxPoints))},
+      );
+
+      expect(book.toc, navEntries);
+    });
+
+    test('a broken navigation file leaves the NCX; a book with neither, or with both broken, has none', () {
+      final broken = {
+        ...navFile('<html><nav epub:type="toc"><ol><li>'),
+        ...ncxFile(ncxXml(ncxPoints)),
+      };
+      expect(
+        openWithContents(
+          'broken-nav',
+          items: {'nav': 'nav/nav.xhtml', 'ncx': 'toc.ncx'},
+          properties: {'nav': 'nav'},
+          toc: 'ncx',
+          extra: broken,
+        ).toc,
+        ncxEntries,
+      );
+
+      expect(openWithContents('neither').toc, isEmpty);
+      expect(
+        openWithContents(
+          'both-broken',
+          items: {'nav': 'nav/nav.xhtml', 'ncx': 'toc.ncx'},
+          properties: {'nav': 'nav'},
+          toc: 'ncx',
+          extra: {...navFile('not xml <'), ...ncxFile('<ncx>')},
+        ).toc,
+        isEmpty,
+      );
+      expect(
+        openWithContents(
+          'missing-file',
+          items: {'nav': 'nav/nav.xhtml'},
+          properties: {'nav': 'nav'},
+        ).toc,
+        isEmpty,
+        reason: 'named in the package but not in the archive',
+      );
+    });
+
+    test('an entry for a file outside the reading order keeps its file', () {
+      final book = EpubBook.open(
+        File('${folder.path}/notes.epub')..writeAsBytesSync(
+          epubBytes({
+            'META-INF/container.xml': containerXml(),
+            'OEBPS/content.opf': packageXml(
+              {'nav': 'nav.xhtml', 'one': 'one.xhtml', 'notes': 'notes.xhtml'},
+              ['one', 'notes'],
+              properties: {'nav': 'nav'},
+            ).replaceFirst('idref="notes"', 'idref="notes" linear="no"'),
+            'OEBPS/nav.xhtml': navXhtml(
+              '<ol><li><a href="notes.xhtml">Notes</a></li></ol>',
+            ),
+            'OEBPS/one.xhtml': chapterXhtml('<p>One</p>'),
+            'OEBPS/notes.xhtml': chapterXhtml('<p>Notes</p>'),
+          }),
+        ),
+      );
+      addTearDown(book.close);
+
+      expect(book.toc, [
+        const TocEntry(title: 'Notes', file: 'OEBPS/notes.xhtml'),
+      ]);
+      expect(book.chapters, isNot(contains('OEBPS/notes.xhtml')));
+    });
+  });
+
+  group('anchors', () {
+    test('each lands on the block that holds it, or, holding no text, on the first block after it', () {
+      final book = open({
+        'META-INF/container.xml': containerXml(),
+        'OEBPS/content.opf': packageXml({'one': 'one.xhtml'}, ['one']),
+        'OEBPS/one.xhtml': chapterXhtml('''
+<a id="page1"/>
+<h1 id="title">Title</h1>
+<section id="part"><p>First <span id="inline">word</span></p><p id="second">Second</p></section>
+Loose <b id="bold">text</b>
+<p>Third <a name="old"/>here</p>
+<p id="title">Again</p>
+<div id="empty"></div>
+<a id="page9"/>'''),
+      });
+      addTearDown(book.close);
+
+      final chapter = book.chapter(0);
+
+      expect(chapter.blocks, hasLength(6));
+      expect(chapter.anchors, {
+        'page1': 0,
+        'title': 0,
+        'part': 1,
+        'inline': 1,
+        'second': 2,
+        'bold': 3,
+        'old': 4,
+        'empty': 5,
+        'page9': 5,
+      });
+      expect(book.chapterBlocks(0), chapter.blocks);
+    });
+
+    test(
+      'a chapter that is no well-formed XML lands its anchors on its one block',
+      () {
+        final book = open({
+          'META-INF/container.xml': containerXml(),
+          'OEBPS/content.opf': packageXml({'one': 'one.xhtml'}, ['one']),
+          'OEBPS/one.xhtml':
+              '<html><body><p id="a">One<p id="b">Two</body></html>',
+        });
+        addTearDown(book.close);
+
+        expect(book.chapter(0).anchors, {'a': 0, 'b': 0});
+      },
+    );
+  });
 }

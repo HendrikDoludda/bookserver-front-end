@@ -13,12 +13,16 @@ String containerXml([String packagePath = 'OEBPS/content.opf']) =>
 
 /// A package file listing [items] (id → href) in its manifest and [spine] (idrefs, in reading
 /// order) in its spine, declaring the book's pages fixed when [fixedLayout] is true, and the
-/// spine's `page-progression-direction` [pageProgression] unless it's null.
+/// spine's `page-progression-direction` [pageProgression] unless it's null. An item named in
+/// [properties] carries them, such as `nav` for the navigation file; [toc] is the spine's `toc`,
+/// the id of the NCX.
 String packageXml(
   Map<String, String> items,
   List<String> spine, {
   bool fixedLayout = false,
   String? pageProgression,
+  Map<String, String> properties = const {},
+  String? toc,
 }) =>
     '''<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
@@ -26,12 +30,33 @@ String packageXml(
     ${fixedLayout ? '<meta property="rendition:layout">pre-paginated</meta>' : ''}
   </metadata>
   <manifest>
-${[for (final MapEntry(key: id, value: href) in items.entries) '    <item id="$id" href="$href" media-type="application/xhtml+xml"/>'].join('\n')}
+${[for (final MapEntry(key: id, value: href) in items.entries) '    <item id="$id" href="$href" media-type="application/xhtml+xml"${properties[id] == null ? '' : ' properties="${properties[id]}"'}/>'].join('\n')}
   </manifest>
-  <spine${pageProgression == null ? '' : ' page-progression-direction="$pageProgression"'}>
+  <spine${pageProgression == null ? '' : ' page-progression-direction="$pageProgression"'}${toc == null ? '' : ' toc="$toc"'}>
 ${[for (final idref in spine) '    <itemref idref="$idref"/>'].join('\n')}
   </spine>
 </package>''';
+
+/// An EPUB 3 navigation file whose `<nav epub:type="toc">` holds [list], an `<ol>`.
+String navXhtml(String list) =>
+    '''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>Contents</title></head>
+<body>
+  <nav epub:type="landmarks"><ol><li><a href="text/one.xhtml">Not the contents</a></li></ol></nav>
+  <nav epub:type="toc" id="toc"><h1>Contents</h1>$list</nav>
+</body>
+</html>''';
+
+/// An EPUB 2 NCX whose `navMap` holds [points], its `navPoint`s.
+String ncxXml(String points) =>
+    '''<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head><meta name="dtb:uid" content="id"/></head>
+  <docTitle><text>Not an entry</text></docTitle>
+  <navMap>$points</navMap>
+</ncx>''';
 
 /// A chapter file whose `<body>` holds [body].
 String chapterXhtml(String body) =>
