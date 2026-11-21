@@ -346,7 +346,7 @@ void main() {
       fileServer(() async => file(longBook)),
       find.textContaining('Chapter 1, paragraph 1:', findRichText: true),
     );
-    final em = Theme.of(tester.element(find.byType(ListView)))
+    final em = Theme.of(tester.element(find.byType(Scrollable).last))
         .textTheme
         .bodyLarge!
         .fontSize!;

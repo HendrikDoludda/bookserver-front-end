@@ -9,6 +9,7 @@ import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/epub_image.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
+import 'package:bookserver/ui/readers/anchored_list.dart';
 import 'package:bookserver/ui/readers/fixed_layout_page.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
@@ -243,38 +244,36 @@ class _Blocks extends StatelessWidget {
         .round();
     final textStyle = Theme.of(context).textTheme.bodyLarge!;
     return LayoutBuilder(
-      builder: (context, constraints) => ListView.custom(
+      builder: (context, constraints) => AnchoredList(
+        count: blocks.length,
+        guessedHeights: _guessedHeights(
+          context,
+          textStyle,
+          math.min(constraints.maxWidth, Widths.reading) - 2 * Spacing.large,
+        ),
         // One item per block, each built in the frame it appears: an item that grows once it's
         // placed above the screen pushes down the text being read.
-        childrenDelegate: _BlockDelegate(
-          (context, index) => Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: Widths.reading),
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  Spacing.large,
-                  _gapAbove(index, textStyle),
-                  Spacing.large,
-                  _gapBelow(index),
+        itemBuilder: (context, index) => Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: Widths.reading),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                Spacing.large,
+                _gapAbove(index, textStyle),
+                Spacing.large,
+                _gapBelow(index),
+              ),
+              child: HtmlWidget(
+                blocks[index].html,
+                buildAsync: false,
+                baseUrl: Uri(
+                  scheme: _scheme,
+                  path: '/${book.chapters[blocks[index].chapter]}',
                 ),
-                child: HtmlWidget(
-                  blocks[index].html,
-                  buildAsync: false,
-                  baseUrl: Uri(
-                    scheme: _scheme,
-                    path: '/${book.chapters[blocks[index].chapter]}',
-                  ),
-                  factoryBuilder: () => _BookPictures(book, imageWidth),
-                  textStyle: textStyle,
-                ),
+                factoryBuilder: () => _BookPictures(book, imageWidth),
+                textStyle: textStyle,
               ),
             ),
-          ),
-          childCount: blocks.length,
-          heightsAfter: _heightsAfter(
-            context,
-            textStyle,
-            math.min(constraints.maxWidth, Widths.reading) - 2 * Spacing.large,
           ),
         ),
       ),
@@ -291,10 +290,10 @@ class _Blocks extends StatelessWidget {
 
   double _gapBelow(int index) => index == blocks.length - 1 ? Spacing.large : 0;
 
-  /// For each block, a guess at how tall the blocks after it are: so many lines each, with as
-  /// many characters to a line as the book's own text makes when wrapped to [textWidth] in
-  /// [textStyle] — lines break between words, so none is filled to the end.
-  List<double> _heightsAfter(
+  /// For each block, a guess at how tall it is: so many lines, with as many characters to a line
+  /// as the book's own text makes when wrapped to [textWidth] in [textStyle] — lines break between
+  /// words, so none is filled to the end.
+  List<double> _guessedHeights(
     BuildContext context,
     TextStyle textStyle,
     double textWidth,
@@ -315,37 +314,14 @@ class _Blocks extends StatelessWidget {
     final lineHeight = painter.height / sampleLines;
     painter.dispose();
 
-    final heights = List<double>.filled(blocks.length, 0);
-    var below = 0.0;
-    for (var index = blocks.length - 1; index >= 0; index--) {
-      heights[index] = below;
-      final lines = math.max(1, (blocks[index].textLength / perLine).ceil());
-      below +=
-          _gapAbove(index, textStyle) + lines * lineHeight + _gapBelow(index);
-    }
-    return heights;
+    return [
+      for (var index = 0; index < blocks.length; index++)
+        _gapAbove(index, textStyle) +
+            math.max(1, (blocks[index].textLength / perLine).ceil()) *
+                lineHeight +
+            _gapBelow(index),
+    ];
   }
-}
-
-/// Builds a book's blocks, and gives the list the book's length from their text: Flutter's own
-/// guess averages the blocks built so far, which swings between a heading and a long paragraph.
-class _BlockDelegate extends SliverChildBuilderDelegate {
-  _BlockDelegate(
-    super.builder, {
-    required int super.childCount,
-    required this.heightsAfter,
-  });
-
-  /// For each block, how tall the blocks after it are guessed to be.
-  final List<double> heightsAfter;
-
-  @override
-  double estimateMaxScrollOffset(
-    int firstIndex,
-    int lastIndex,
-    double leadingScrollOffset,
-    double trailingScrollOffset,
-  ) => trailingScrollOffset + heightsAfter[lastIndex];
 }
 
 /// A block's text, its tags left out and its white space one space.
