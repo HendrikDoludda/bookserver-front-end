@@ -77,6 +77,9 @@
   },
   "manage": {
     "cancel": "Cancel",
+    "choose_cover": "Choose a cover",
+    "cover": "Cover",
+    "cover_automatic": "Automatic",
     "delete": "Delete",
     "delete_library": "Delete this library?",
     "delete_library_explanation": "Its series and books stay, and so do the files.",

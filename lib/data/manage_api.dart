@@ -62,7 +62,8 @@ final class Change<T> {
   final T value;
 }
 
-/// What an admin changes on the server: libraries, which series they hold, and series.
+/// What an admin changes on the server: libraries, which series they hold, series, and the covers
+/// both show.
 class ManageApi {
   ManageApi(this._client);
 
@@ -170,6 +171,49 @@ class ManageApi {
   /// Deletes a series without books; one with books is refused with `series_not_empty`.
   Future<void> deleteSeries(String sessionToken, int seriesId) async {
     await _client.deleteJson('/api/v1/series/$seriesId', bearer: sessionToken);
+  }
+
+  /// The series shows the cover of [bookId], one of its books; one without a cover is refused.
+  Future<void> chooseSeriesCover(
+    String sessionToken,
+    int seriesId,
+    int bookId,
+  ) async {
+    await _client.putJson(
+      '/api/v1/series/$seriesId/cover',
+      body: {'book_id': bookId},
+      bearer: sessionToken,
+    );
+  }
+
+  /// The series shows its automatic cover again: its first book's.
+  Future<void> resetSeriesCover(String sessionToken, int seriesId) async {
+    await _client.deleteJson(
+      '/api/v1/series/$seriesId/cover',
+      bearer: sessionToken,
+    );
+  }
+
+  /// The library shows the cover [seriesId], one of its series, shows now; the library keeps that
+  /// picture when the series' cover changes later.
+  Future<void> chooseLibraryCover(
+    String sessionToken,
+    int libraryId,
+    int seriesId,
+  ) async {
+    await _client.putJson(
+      '/api/v1/libraries/$libraryId/cover',
+      body: {'series_id': seriesId},
+      bearer: sessionToken,
+    );
+  }
+
+  /// The library shows its automatic cover again: its first series'.
+  Future<void> resetLibraryCover(String sessionToken, int libraryId) async {
+    await _client.deleteJson(
+      '/api/v1/libraries/$libraryId/cover',
+      bearer: sessionToken,
+    );
   }
 
   static ManagedLibrary _library(Object? json) => switch (json) {

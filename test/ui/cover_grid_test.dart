@@ -199,4 +199,43 @@ void main() {
 
     expect(taps, [1, 0]);
   });
+
+  testWidgets('a card without a tap is a button that says it is disabled', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await pumpScreen(
+      tester,
+      catalog: english,
+      screen: const Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 120,
+            height: 240,
+            child: CoverCard(
+              cover: AspectRatio(
+                aspectRatio: Covers.aspectRatio,
+                child: Placeholder(),
+              ),
+              name: 'card 0',
+              onTap: null,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester.getSemantics(cards),
+      isSemantics(
+        label: 'card 0',
+        isButton: true,
+        hasEnabledState: true,
+        isEnabled: false,
+        hasTapAction: false,
+      ),
+    );
+    semantics.dispose();
+  });
 }

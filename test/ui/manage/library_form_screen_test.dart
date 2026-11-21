@@ -1,7 +1,10 @@
+import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/ui/manage/cover_choice_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../support/cover_cache.dart';
 import '../../support/fake_server.dart';
 import '../../support/manage_server.dart';
 import '../../support/screens.dart';
@@ -234,5 +237,113 @@ void main() {
 
     expect(server.changes, ['DELETE /api/v1/libraries/1']);
     expect(find.text(english.text('manage.libraries_empty')), findsOneWidget);
+  });
+
+  Future<void> openCoverChoice(WidgetTester tester) async {
+    await tester.tap(find.text(english.text('manage.cover')));
+    await tester.pumpAndSettle();
+  }
+
+  /// Manga holds Berserk; Monster and Pluto are in no library. All three have a cover.
+  ManageServer coveredServer() => ManageServer(
+    libraries: [libraryJson(1, 'Manga')],
+    series: [
+      seriesJson(4, 'Berserk', libraryIds: [1]),
+      seriesJson(5, 'Monster'),
+      seriesJson(6, 'Pluto'),
+    ],
+    covers: {
+      '/api/v1/covers/series/4',
+      '/api/v1/covers/series/5',
+      '/api/v1/covers/series/6',
+    },
+  );
+
+  Future<void> openManga(WidgetTester tester, ManageServer server) async {
+    await openLibraries(tester, server);
+    await tester.tap(find.text('Manga'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets(
+    'the cover comes from the ticked series, and is set after the series it needs',
+    (tester) async {
+      final server = coveredServer();
+      await openManga(tester, server);
+      await tester.tap(seriesBox('Monster'));
+      await tester.pump();
+
+      await openCoverChoice(tester);
+      expect(cardNamed('Berserk'), findsOneWidget);
+      expect(cardNamed('Monster'), findsOneWidget);
+      expect(cardNamed('Pluto'), findsNothing, reason: 'not ticked');
+      await tester.tap(cardNamed('Monster'));
+      await tester.pumpAndSettle();
+      await save(tester);
+
+      expect(server.changes, [
+        'PUT /api/v1/libraries/1/series/5',
+        'PUT /api/v1/libraries/1/cover {"series_id":5}',
+      ]);
+    },
+  );
+
+  testWidgets('unticking the series picked for the cover drops the pick', (
+    tester,
+  ) async {
+    final server = coveredServer();
+    await openManga(tester, server);
+    await openCoverChoice(tester);
+    await tester.tap(cardNamed('Berserk'));
+    await tester.pumpAndSettle();
+    final pick = find.descendant(
+      of: find.byType(CoverField),
+      matching: find.text('Berserk'),
+    );
+    expect(pick, findsOneWidget);
+
+    await tester.tap(seriesBox('Berserk'));
+    await tester.pump();
+    expect(pick, findsNothing);
+    await save(tester);
+
+    expect(server.changes, ['DELETE /api/v1/libraries/1/series/4']);
+  });
+
+  testWidgets('Automatic resets a library\'s cover with DELETE', (
+    tester,
+  ) async {
+    final server = coveredServer();
+    await openManga(tester, server);
+
+    await openCoverChoice(tester);
+    await tester.tap(cardNamed(english.text('manage.cover_automatic')));
+    await tester.pumpAndSettle();
+    await save(tester);
+
+    expect(server.changes, ['DELETE /api/v1/libraries/1/cover']);
+  });
+
+  testWidgets('saving drops the library\'s cached cover, and no other', (
+    tester,
+  ) async {
+    final server = coveredServer();
+    server.covers.add('/api/v1/covers/library/1');
+    final session = await signedInSession(server.fake);
+    final [manga, berserk] = (await tester.runAsync(
+      () => cachedCovers(session, [
+        (CoverKind.library, 1),
+        (CoverKind.series, 4),
+      ]),
+    ))!;
+    expect([manga, berserk].every(isCached), isTrue);
+    await openManga(tester, server);
+
+    await tester.tap(seriesBox('Monster'));
+    await tester.pump();
+    await save(tester);
+
+    expect(isCached(manga), isFalse, reason: 'its series decide it');
+    expect(isCached(berserk), isTrue);
   });
 }

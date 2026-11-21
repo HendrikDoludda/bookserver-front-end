@@ -73,7 +73,9 @@ class CoverCard extends StatelessWidget {
   /// The cover, as wide as the card.
   final Widget cover;
   final String name;
-  final VoidCallback onTap;
+
+  /// What a tap does; null shows the card can't be tapped.
+  final VoidCallback? onTap;
 
   /// One line under the name, such as how many books a series holds; its [CoverGrid] needs
   /// `withDetail`.
@@ -85,6 +87,7 @@ class CoverCard extends StatelessWidget {
     return MergeSemantics(
       child: Semantics(
         button: true,
+        enabled: onTap != null,
         child: Stack(
           fit: StackFit.expand,
           children: [

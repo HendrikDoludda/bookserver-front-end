@@ -59,7 +59,7 @@ class BooksScreen extends StatelessWidget {
           final book = books[index];
           return CoverCard(
             cover: Cover(session: session, kind: CoverKind.book, id: book.id),
-            name: _nameOf(context, book),
+            name: bookName(context, book),
             onTap: () => openBook(context, session, book),
           );
         },
@@ -69,7 +69,7 @@ class BooksScreen extends StatelessWidget {
 }
 
 /// A book's name within its series: its volume and chapter, or its title when it has neither.
-String _nameOf(BuildContext context, Book book) => switch ((
+String bookName(BuildContext context, Book book) => switch ((
   book.volume,
   book.chapter,
 )) {

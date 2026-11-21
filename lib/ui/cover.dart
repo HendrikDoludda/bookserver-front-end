@@ -28,6 +28,14 @@ class Cover extends StatelessWidget {
     width: Covers.decodeWidth,
   );
 
+  /// Drops the covers of [ids] from the image cache, so each loads again where it shows next: a
+  /// cover the server changed keeps its path, and the cache would keep the old picture.
+  static Future<void> forget(
+    SessionController session,
+    CoverKind kind,
+    Iterable<int> ids,
+  ) => Future.wait([for (final id in ids) imageOf(session, kind, id).evict()]);
+
   @override
   Widget build(BuildContext context) {
     return AspectRatio(

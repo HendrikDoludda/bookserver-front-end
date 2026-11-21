@@ -47,6 +47,9 @@ abstract final class Covers {
 
   // Sharp at the widest tile on a 3× phone screen; a full-size cover would decode to megabytes.
   static final int decodeWidth = (maxTileWidth * 3).ceil();
+
+  // 48 high at the covers' shape: it fits a one-line list tile, which is 56 high.
+  static const double thumbnailWidth = 32;
 }
 
 // Kept from the Flutter template until branding (08) sets the app's colours.

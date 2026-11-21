@@ -3,14 +3,19 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'fake_server.dart';
+import 'images.dart';
 import 'screens.dart';
 
 /// Stands in for a server an admin manages: it answers the account as an admin's, and the
 /// library and series calls from its own lists, which those calls change as the server would.
+/// A series' books come from [books], and the covers it has are the paths in [covers]; choosing
+/// or resetting a cover only answers 204.
 class ManageServer {
   ManageServer({
     List<Map<String, Object?>> libraries = const [],
     List<Map<String, Object?>> series = const [],
+    this.books = const {},
+    this.covers = const {},
   }) : libraries = [
          for (final one in libraries) {...one},
        ],
@@ -28,6 +33,12 @@ class ManageServer {
 
   /// The series as `GET /api/v1/series` sends them.
   final List<Map<String, Object?>> series;
+
+  /// Each series' books by its id, as `GET /api/v1/series/{id}/books` sends them.
+  final Map<int, List<Map<String, Object?>>> books;
+
+  /// The cover paths that answer a picture, such as `/api/v1/covers/book/7`; any other is a 404.
+  final Set<String> covers;
 
   /// Answers a request before the lists do, when it gives an answer: a refusal, say.
   http.Response? Function(http.Request request)? refuse;
@@ -85,6 +96,17 @@ class ManageServer {
       ('GET', ['series']) => jsonAnswer(series),
       ('PATCH', ['series', final id]) => _change(_series(id), body),
       ('DELETE', ['series', final id]) => _deleteSeries(id),
+      ('GET', ['series', final id, 'books']) => jsonAnswer(
+        books[int.parse(id)] ?? const [],
+      ),
+      ('PUT' || 'DELETE', ['series' || 'libraries', _, 'cover']) =>
+        http.Response('', 204),
+      ('GET', ['covers', _, _]) when covers.contains(request.url.path) =>
+        http.Response.bytes(
+          onePixelPng,
+          200,
+          headers: {'content-type': 'image/png'},
+        ),
       _ => notFound(),
     };
   }
@@ -182,6 +204,19 @@ Map<String, Object?> seriesJson(
   'end_release_year': null,
   'book_count': bookCount,
   'library_ids': libraryIds,
+};
+
+/// A book as `GET /api/v1/series/{id}/books` sends it.
+Map<String, Object?> bookJson(
+  int id, {
+  int? volume,
+  String title = 'Berserk',
+}) => {
+  'id': id,
+  'title': title,
+  'format': 'cbz',
+  'volume_number': volume,
+  'chapter_number': null,
 };
 
 /// A library as `GET /api/v1/libraries` sends it, without its `series_count`.

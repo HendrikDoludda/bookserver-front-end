@@ -233,4 +233,49 @@ void main() {
     expect(onlyRequest(server).method, 'DELETE');
     expect(onlyRequest(server).url.path, '/api/v1/libraries/3');
   });
+
+  test(
+    'a cover is chosen with PUT and its id, and reset with DELETE',
+    () async {
+      final server = FakeServer((_) async => http.Response('', 204));
+      final api = apiFor(server);
+
+      await api.chooseSeriesCover('session-1', 4, 12);
+      await api.resetSeriesCover('session-1', 4);
+      await api.chooseLibraryCover('session-1', 3, 4);
+      await api.resetLibraryCover('session-1', 3);
+
+      expect(
+        [
+          for (final request in server.requests)
+            '${request.method} ${request.url.path} ${request.body}'.trim(),
+        ],
+        [
+          'PUT /api/v1/series/4/cover {"book_id":12}',
+          'DELETE /api/v1/series/4/cover',
+          'PUT /api/v1/libraries/3/cover {"series_id":4}',
+          'DELETE /api/v1/libraries/3/cover',
+        ],
+      );
+      expect(
+        server.requests.map((request) => request.headers['authorization']),
+        everyElement('Bearer session-1'),
+      );
+    },
+  );
+
+  test('a refused cover passes the server\'s answer on', () async {
+    final server = FakeServer(
+      (_) async => jsonAnswer({'error': 'invalid_request'}, 400),
+    );
+
+    await expectLater(
+      apiFor(server).chooseSeriesCover('session-1', 4, 99),
+      throwsA(
+        isA<ApiException>()
+            .having((e) => e.status, 'status', 400)
+            .having((e) => e.key, 'key', 'invalid_request'),
+      ),
+    );
+  });
 }

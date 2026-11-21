@@ -1,14 +1,17 @@
+import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/manage_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/ui/cover.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/manage/confirm_delete.dart';
+import 'package:bookserver/ui/manage/cover_choice_screen.dart';
 import 'package:bookserver/ui/notice.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// A library's name, type, description and series: for [library], or for a new one when it is
-/// null. Saving or deleting closes the form with `true`.
+/// A library's name, type, description, cover and series: for [library], or for a new one when it
+/// is null. Saving or deleting closes the form with `true`.
 class LibraryFormScreen extends StatefulWidget {
   const LibraryFormScreen({super.key, required this.session, this.library});
 
@@ -41,6 +44,9 @@ class _LibraryFormScreenState extends State<LibraryFormScreen> {
   /// The series the library holds on the server, and those ticked in the form.
   var _held = <int>{};
   var _chosen = <int>{};
+
+  /// What saving does with the cover; null leaves it as it is.
+  CoverChoice? _cover;
 
   var _busy = false;
   String? _errorKey;
@@ -97,9 +103,32 @@ class _LibraryFormScreenState extends State<LibraryFormScreen> {
     }
   }
 
+  /// Picks the cover among the ticked series: saving adds them before it sets the cover.
+  Future<void> _chooseCover() async {
+    final candidates = [
+      for (final one in _series)
+        if (_chosen.contains(one.id)) one,
+    ];
+    final choice = await Navigator.of(context).push<CoverChoice>(
+      MaterialPageRoute(
+        builder: (_) => CoverChoiceScreen<ManagedSeries>(
+          session: widget.session,
+          kind: CoverKind.series,
+          load: () async => candidates,
+          idOf: (series) => series.id,
+          nameOf: (_, series) => series.name,
+        ),
+      ),
+    );
+    if (choice != null && mounted) {
+      setState(() => _cover = choice);
+    }
+  }
+
   /// Creates or changes the library, then adds and removes series until the server holds the
-  /// ticked ones. Each call is its own [SessionController.authorized]: that repeats a call once
-  /// after a 401, and repeating a creation with the calls after it would create two libraries.
+  /// ticked ones, then sets the cover picked. Each call is its own [SessionController.authorized]:
+  /// that repeats a call once after a 401, and repeating a creation with the calls after it would
+  /// create two libraries.
   Future<void> _save() async {
     final name = _name.text;
     final description = _description.text.trim().isEmpty
@@ -149,18 +178,36 @@ class _LibraryFormScreenState extends State<LibraryFormScreen> {
         }
       }
       final libraryId = library.id;
-      for (final seriesId in _chosen.difference(_held)) {
-        await widget.session.authorized(
-          (api, token) => ManageApi(api).addSeries(token, libraryId, seriesId),
-        );
-        _held.add(seriesId);
-      }
-      for (final seriesId in _held.difference(_chosen)) {
-        await widget.session.authorized(
-          (api, token) =>
-              ManageApi(api).removeSeries(token, libraryId, seriesId),
-        );
-        _held.remove(seriesId);
+      try {
+        for (final seriesId in _chosen.difference(_held)) {
+          await widget.session.authorized(
+            (api, token) =>
+                ManageApi(api).addSeries(token, libraryId, seriesId),
+          );
+          _held.add(seriesId);
+        }
+        for (final seriesId in _held.difference(_chosen)) {
+          await widget.session.authorized(
+            (api, token) =>
+                ManageApi(api).removeSeries(token, libraryId, seriesId),
+          );
+          _held.remove(seriesId);
+        }
+        if (_cover case final cover?) {
+          await widget.session.authorized(
+            (api, token) => switch (cover) {
+              PickedCover(:final id) => ManageApi(
+                api,
+              ).chooseLibraryCover(token, libraryId, id),
+              AutomaticCover() => ManageApi(
+                api,
+              ).resetLibraryCover(token, libraryId),
+            },
+          );
+        }
+      } finally {
+        // Also after a failure: the series it holds decide its automatic cover.
+        await Cover.forget(widget.session, CoverKind.library, [libraryId]);
       }
       if (mounted) {
         Navigator.of(context).pop(true);
@@ -307,6 +354,17 @@ class _LibraryFormScreenState extends State<LibraryFormScreen> {
                 labelText: context.t('manage.description'),
               ),
             ),
+            const SizedBox(height: Spacing.medium),
+            CoverField(
+              session: widget.session,
+              current: switch (_saved) {
+                final saved? => (kind: CoverKind.library, id: saved.id),
+                null => null,
+              },
+              candidates: CoverKind.series,
+              choice: _cover,
+              onTap: _busy ? null : _chooseCover,
+            ),
             const SizedBox(height: Spacing.large),
             Text(
               context.t('manage.library_series'),
@@ -326,6 +384,11 @@ class _LibraryFormScreenState extends State<LibraryFormScreen> {
                           _chosen.add(one.id);
                         } else {
                           _chosen.remove(one.id);
+                          // The server refuses the cover of a series the library doesn't hold.
+                          if (_cover case PickedCover(:final id)
+                              when id == one.id) {
+                            _cover = null;
+                          }
                         }
                       }),
               ),

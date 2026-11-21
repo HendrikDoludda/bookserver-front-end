@@ -1,14 +1,18 @@
 import 'package:bookserver/data/api_client.dart';
+import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/manage_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/ui/books_screen.dart';
+import 'package:bookserver/ui/cover.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/manage/confirm_delete.dart';
+import 'package:bookserver/ui/manage/cover_choice_screen.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// A series' name, description and release years. Saving or deleting closes the form with
+/// A series' name, description, release years and cover. Saving or deleting closes the form with
 /// `true`; a series with books can't be deleted, and the form says so.
 class SeriesFormScreen extends StatefulWidget {
   const SeriesFormScreen({
@@ -39,6 +43,9 @@ class _SeriesFormScreenState extends State<SeriesFormScreen> {
   var _busy = false;
   String? _errorKey;
 
+  /// What saving does with the cover; null leaves it as it is.
+  CoverChoice? _cover;
+
   @override
   void dispose() {
     _name.dispose();
@@ -48,7 +55,28 @@ class _SeriesFormScreenState extends State<SeriesFormScreen> {
     super.dispose();
   }
 
-  /// Sends only the fields that changed; with none, the form just closes.
+  Future<void> _chooseCover() async {
+    final seriesId = widget.series.id;
+    final choice = await Navigator.of(context).push<CoverChoice>(
+      MaterialPageRoute(
+        builder: (_) => CoverChoiceScreen<Book>(
+          session: widget.session,
+          kind: CoverKind.book,
+          load: () => widget.session.authorized(
+            (api, token) => BrowseApi(api).booksOf(seriesId, token),
+          ),
+          idOf: (book) => book.id,
+          nameOf: bookName,
+        ),
+      ),
+    );
+    if (choice != null && mounted) {
+      setState(() => _cover = choice);
+    }
+  }
+
+  /// Sends only the fields that changed, then the cover picked; with neither, the form just
+  /// closes.
   Future<void> _save() async {
     final series = widget.series;
     final name = _name.text;
@@ -57,27 +85,36 @@ class _SeriesFormScreenState extends State<SeriesFormScreen> {
         : _description.text;
     final startYear = int.tryParse(_startYear.text);
     final endYear = int.tryParse(_endYear.text);
-    final unchanged =
+    final fieldsUnchanged =
         name == series.name &&
         description == series.description &&
         startYear == series.startYear &&
         endYear == series.endYear;
-    if (unchanged) {
+    final cover = _cover;
+    if (fieldsUnchanged && cover == null) {
       Navigator.of(context).pop(false);
       return;
     }
-    await _run(
-      (api, token) => ManageApi(api).changeSeries(
-        token,
-        series.id,
-        name: name != series.name ? name : null,
-        description: description != series.description
-            ? Change(description)
-            : null,
-        startYear: startYear != series.startYear ? Change(startYear) : null,
-        endYear: endYear != series.endYear ? Change(endYear) : null,
-      ),
-    );
+    await _run([
+      if (!fieldsUnchanged)
+        (api, token) => ManageApi(api).changeSeries(
+          token,
+          series.id,
+          name: name != series.name ? name : null,
+          description: description != series.description
+              ? Change(description)
+              : null,
+          startYear: startYear != series.startYear ? Change(startYear) : null,
+          endYear: endYear != series.endYear ? Change(endYear) : null,
+        ),
+      if (cover != null)
+        (api, token) => switch (cover) {
+          PickedCover(:final id) => ManageApi(
+            api,
+          ).chooseSeriesCover(token, series.id, id),
+          AutomaticCover() => ManageApi(api).resetSeriesCover(token, series.id),
+        },
+    ]);
   }
 
   Future<void> _delete() async {
@@ -87,22 +124,30 @@ class _SeriesFormScreenState extends State<SeriesFormScreen> {
       explanationKey: 'manage.delete_series_explanation',
     );
     if (confirmed && mounted) {
-      await _run(
+      await _run([
         (api, token) => ManageApi(api).deleteSeries(token, widget.series.id),
-      );
+      ]);
     }
   }
 
-  /// Runs [call] with the session; closes the form when it succeeds, else says why.
+  /// Runs [calls] in turn, each in its own [SessionController.authorized]; closes the form when
+  /// all succeed, else says why.
   Future<void> _run(
-    Future<void> Function(ApiClient api, String token) call,
+    List<Future<void> Function(ApiClient api, String token)> calls,
   ) async {
     setState(() {
       _busy = true;
       _errorKey = null;
     });
     try {
-      await widget.session.authorized(call);
+      try {
+        for (final call in calls) {
+          await widget.session.authorized(call);
+        }
+      } finally {
+        // Also after a failure: a call before it may have changed what a cover shows.
+        await _forgetCovers();
+      }
       if (mounted) {
         Navigator.of(context).pop(true);
       }
@@ -118,6 +163,13 @@ class _SeriesFormScreenState extends State<SeriesFormScreen> {
       }
     }
   }
+
+  /// Drops the covers this form can change from the image cache: the series' own, and its
+  /// libraries', which fall back to their first series by name.
+  Future<void> _forgetCovers() => Future.wait([
+    Cover.forget(widget.session, CoverKind.series, [widget.series.id]),
+    Cover.forget(widget.session, CoverKind.library, widget.series.libraryIds),
+  ]);
 
   @override
   Widget build(BuildContext context) {
@@ -185,6 +237,14 @@ class _SeriesFormScreenState extends State<SeriesFormScreen> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: Spacing.medium),
+                  CoverField(
+                    session: widget.session,
+                    current: (kind: CoverKind.series, id: widget.series.id),
+                    candidates: CoverKind.book,
+                    choice: _cover,
+                    onTap: _busy ? null : _chooseCover,
                   ),
                   const SizedBox(height: Spacing.large),
                   OutlinedButton(
