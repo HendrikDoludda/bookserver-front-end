@@ -12,6 +12,7 @@ import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
 import 'package:bookserver/ui/preferences_scope.dart';
 import 'package:bookserver/ui/readers/anchored_list.dart';
+import 'package:bookserver/ui/readers/contents_list.dart';
 import 'package:bookserver/ui/readers/fixed_layout_page.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
@@ -39,6 +40,12 @@ class _EpubReaderState extends State<EpubReader> {
   File? _file;
   EpubBook? _epub;
   List<_Block> _blocks = const [];
+
+  /// For each chapter of a flowing book, the index of its first block, and the block each anchor
+  /// in it lands on, counted from that first block.
+  List<int> _chapterStarts = const [];
+  List<Map<String, int>> _anchors = const [];
+
   FixedLayoutBook? _fixedLayout;
   String? _errorKey;
   double? _received;
@@ -110,19 +117,27 @@ class _EpubReaderState extends State<EpubReader> {
         });
         return;
       }
-      final blocks = [
-        for (var chapter = 0; chapter < epub.chapters.length; chapter++)
-          for (final (index, html) in epub.chapterBlocks(chapter).indexed)
-            (
-              chapter: chapter,
-              html: html,
-              startsChapter: index == 0,
-              textLength: _textOf(html).length,
-            ),
-      ];
+      final blocks = <_Block>[];
+      final chapterStarts = <int>[];
+      final anchors = <Map<String, int>>[];
+      for (var chapter = 0; chapter < epub.chapters.length; chapter++) {
+        final made = epub.chapter(chapter);
+        chapterStarts.add(blocks.length);
+        anchors.add(made.anchors);
+        for (final (index, html) in made.blocks.indexed) {
+          blocks.add((
+            chapter: chapter,
+            html: html,
+            startsChapter: index == 0,
+            textLength: _textOf(html).length,
+          ));
+        }
+      }
       setState(() {
         _epub = epub;
         _blocks = blocks;
+        _chapterStarts = chapterStarts;
+        _anchors = anchors;
       });
     } on Exception catch (error) {
       if (mounted) {
@@ -149,6 +164,55 @@ class _EpubReaderState extends State<EpubReader> {
     _turner.currentState?.zoomTo(step);
   }
 
+  /// Goes to [anchor] in [file], the place a contents entry or a link names: in a flowing book the
+  /// block it lands on, else the file's first block, at the top of the screen; in a fixed-layout
+  /// book the page made from [file].
+  void _goTo(String file, String? anchor) {
+    final chapter = _epub?.chapters.indexOf(file) ?? -1;
+    if (chapter < 0) {
+      return;
+    }
+    if (_fixedLayout != null) {
+      _turner.currentState?.turnTo(chapter);
+      return;
+    }
+    final inChapter = anchor == null ? null : _anchors[chapter][anchor];
+    _list.currentState?.showItem(
+      math.min(_chapterStarts[chapter] + (inChapter ?? 0), _blocks.length - 1),
+    );
+  }
+
+  /// Follows a link in a flowing book's text, written as [url]: to its place when that is in the
+  /// book. Taken either way: a link out of the book opens nothing.
+  bool _follow(String url) {
+    final link = Uri.tryParse(url);
+    if (link != null &&
+        link.scheme == _scheme &&
+        !link.hasAuthority &&
+        link.path.startsWith('/')) {
+      _goTo(
+        Uri.decodeComponent(link.path.substring(1)),
+        link.fragment.isEmpty ? null : Uri.decodeComponent(link.fragment),
+      );
+    }
+    return true;
+  }
+
+  /// The book's contents, each entry going to its place; an entry whose file isn't in the reading
+  /// order goes nowhere.
+  List<ContentsRow> _contents(EpubBook epub) => contentsRows(
+    epub.toc,
+    titleOf: (entry) => entry.title,
+    childrenOf: (entry) => entry.children,
+    goOf: (entry) => switch (entry.file) {
+      final file? when epub.chapters.contains(file) => () => _goTo(
+        file,
+        entry.anchor,
+      ),
+      _ => null,
+    },
+  );
+
   /// Makes a flowing book's text [by] percent larger, the block at the top staying there.
   void _changeFont(PreferencesController preferences, int by) {
     // Taken while the screen still shows the text at its old size.
@@ -167,10 +231,14 @@ class _EpubReaderState extends State<EpubReader> {
     final preferences = PreferencesScope.of(context);
     final fontPercent = preferences.preferences.fontPercent;
     final flowing = epub != null && _fixedLayout == null && _errorKey == null;
+    final contents = epub == null || _errorKey != null
+        ? const <ContentsRow>[]
+        : _contents(epub);
     return ReaderFrame(
       key: _frame,
       title: widget.book.title,
       controls: [
+        if (contents.isNotEmpty) ContentsButton(rows: contents),
         if (_fixedLayout != null && _errorKey == null)
           ZoomButton(step: _pinched ? null : _zoom, onChanged: _setZoom),
         if (flowing)
@@ -250,6 +318,7 @@ class _EpubReaderState extends State<EpubReader> {
         book: epub,
         blocks: _blocks,
         fontPercent: PreferencesScope.of(context).preferences.fontPercent,
+        onLink: _follow,
       ),
     );
   }
@@ -306,12 +375,16 @@ class _Blocks extends StatelessWidget {
     required this.book,
     required this.blocks,
     required this.fontPercent,
+    required this.onLink,
   });
 
   final GlobalKey<AnchoredListState> listKey;
   final EpubBook book;
   final List<_Block> blocks;
   final int fontPercent;
+
+  /// Called with a link's address, resolved against its chapter, when it's tapped.
+  final bool Function(String url) onLink;
 
   @override
   Widget build(BuildContext context) {
@@ -351,6 +424,7 @@ class _Blocks extends StatelessWidget {
                   path: '/${book.chapters[blocks[index].chapter]}',
                 ),
                 factoryBuilder: () => _BookPictures(book, imageWidth),
+                onTapUrl: onLink,
                 textStyle: textStyle,
               ),
             ),

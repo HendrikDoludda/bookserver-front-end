@@ -222,6 +222,7 @@ void main() {
     onInteractionStart: () {},
     onInteractionEnd: () {},
     onViewerReady: () {},
+    onLink: (_) {},
   );
 
   test('scrolls one column, or shows one page at a time fitted to the window, either way', () {
@@ -382,6 +383,58 @@ void main() {
     },
   );
 
+  test("the outline's rows list each node, then the ones beneath it; a node goes to its place, one "
+      'without a place nowhere', () {
+    const chapter = PdfDest(3, PdfDestCommand.fit, null);
+    final went = <PdfDest>[];
+
+    final rows = outlineRows(const [
+      PdfOutlineNode(
+        title: 'Part One',
+        dest: null,
+        children: [
+          PdfOutlineNode(title: 'Chapter 1', dest: chapter, children: []),
+        ],
+      ),
+      PdfOutlineNode(
+        title: 'Index',
+        dest: PdfDest(9, PdfDestCommand.fit, null),
+        children: [],
+      ),
+    ], went.add);
+
+    expect(
+      [for (final row in rows) (row.title, row.depth, row.go != null)],
+      [('Part One', 0, false), ('Chapter 1', 1, true), ('Index', 0, true)],
+    );
+    rows[1].go!();
+    expect(went, [chapter]);
+  });
+
+  test("a link to one of the PDF's own pages goes there, one out of it nowhere; an address written in "
+      'its text is no link', () {
+    final went = <PdfDest>[];
+    final links = pdfViewerParams(
+      mode: ReadingMode.continuous,
+      background: const Color(0xFF808080),
+      onPageChanged: (_) {},
+      onTap: () {},
+      onTurn: (_) {},
+      onInteractionStart: () {},
+      onInteractionEnd: () {},
+      onViewerReady: () {},
+      onLink: went.add,
+    ).linkHandlerParams!;
+
+    links.onLinkTap(
+      const PdfLink([], dest: PdfDest(5, PdfDestCommand.fit, null)),
+    );
+    links.onLinkTap(PdfLink(const [], url: Uri.parse('https://example.com')));
+
+    expect(went, [const PdfDest(5, PdfDestCommand.fit, null)]);
+    expect(links.enableAutoLinkDetection, isFalse);
+  });
+
   test('the viewer renders two window heights above and below the screen, measures pages as they '
       'come, and draws full detail once scrolling pauses', () {
     const background = Color(0xFF808080);
@@ -394,6 +447,7 @@ void main() {
       onInteractionStart: () {},
       onInteractionEnd: () {},
       onViewerReady: () {},
+      onLink: (_) {},
     );
 
     expect(params.verticalCacheExtent, 2);
@@ -418,6 +472,7 @@ void main() {
         onInteractionStart: () {},
         onInteractionEnd: () {},
         onViewerReady: () {},
+        onLink: (_) {},
       );
       await tester.pumpWidget(const SizedBox());
       final context = tester.element(find.byType(SizedBox));
@@ -459,6 +514,7 @@ void main() {
       onInteractionStart: () => starts++,
       onInteractionEnd: () => ends++,
       onViewerReady: () => readies++,
+      onLink: (_) {},
     );
 
     params.onInteractionStart!(ScaleStartDetails());

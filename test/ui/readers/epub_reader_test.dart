@@ -115,6 +115,63 @@ void main() {
     ),
   });
 
+  /// A flowing EPUB with contents: two chapters of 40 paragraphs, the first ending in a link to
+  /// the second's note, the second in a link out of the book; and an entry for a file outside the
+  /// reading order. Its blocks: chapter one's heading 0, its link 41; chapter two's heading 42, the
+  /// note 83, the link out 84.
+  final contentsBook = epubBytes({
+    'META-INF/container.xml': containerXml(),
+    'OEBPS/content.opf': packageXml(
+      {
+        'nav': 'nav.xhtml',
+        'c1': 'c1.xhtml',
+        'c2': 'c2.xhtml',
+        'extra': 'extra.xhtml',
+      },
+      ['c1', 'c2', 'extra'],
+      properties: {'nav': 'nav'},
+    ).replaceFirst('idref="extra"', 'idref="extra" linear="no"'),
+    'OEBPS/nav.xhtml': navXhtml(
+      '<ol><li><a href="c1.xhtml">Chapter One</a></li>'
+      '<li><a href="c2.xhtml">Chapter Two</a>'
+      '<ol><li><a href="c2.xhtml#note">The note</a></li></ol></li>'
+      '<li><a href="extra.xhtml">Extra</a></li></ol>',
+    ),
+    'OEBPS/c1.xhtml': chapterXhtml(
+      '<h1>Chapter One</h1>'
+      '${[for (var paragraph = 1; paragraph <= 40; paragraph++) '<p>One, paragraph $paragraph: ${'words ' * 20}</p>'].join()}'
+      '<p><a href="c2.xhtml#note">See the note</a></p>',
+    ),
+    'OEBPS/c2.xhtml': chapterXhtml(
+      '<h1>Chapter Two</h1>'
+      '${[for (var paragraph = 1; paragraph <= 40; paragraph++) '<p>Two, paragraph $paragraph: ${'words ' * 20}</p>'].join()}'
+      '<p id="note">The note itself</p>'
+      '<p><a href="https://example.com/away">Out of the book</a></p>',
+    ),
+    'OEBPS/extra.xhtml': chapterXhtml('<p>Extra</p>'),
+  });
+
+  /// A fixed-layout EPUB of two pages with contents.
+  final fixedContentsBook = epubBytes({
+    'META-INF/container.xml': containerXml(),
+    'OEBPS/content.opf': packageXml(
+      {'nav': 'nav.xhtml', 'p1': 'p1.xhtml', 'p2': 'p2.xhtml'},
+      ['p1', 'p2'],
+      fixedLayout: true,
+      properties: {'nav': 'nav'},
+    ),
+    'OEBPS/nav.xhtml': navXhtml(
+      '<ol><li><a href="p1.xhtml">First</a></li>'
+      '<li><a href="p2.xhtml">Second</a></li></ol>',
+    ),
+    'OEBPS/p1.xhtml': fixedPageXhtml(
+      '<div style="left:100px;top:100px">The first page</div>',
+    ),
+    'OEBPS/p2.xhtml': fixedPageXhtml(
+      '<div style="left:100px;top:100px">The second page</div>',
+    ),
+  });
+
   http.Response file(List<int> bytes) => http.Response.bytes(
     bytes,
     200,
@@ -220,8 +277,13 @@ void main() {
       await tester.tapAt(tester.getTopLeft(link) + const Offset(8, 8));
       await tester.pump();
       expect(frame.barShown, isFalse, reason: 'the link took the tap');
+      expect(
+        tester.state<AnchoredListState>(find.byType(AnchoredList)).topItem,
+        3,
+        reason: "chapter two's heading, where the link goes",
+      );
 
-      await tester.tap(firstChapter);
+      await tester.tap(find.text('Chapter two', findRichText: true));
       await tester.pump();
       expect(frame.barShown, isTrue);
     },
@@ -622,6 +684,101 @@ void main() {
 
       expect(find.text(percent(110)), findsOneWidget);
       expect(textSize(tester), moreOrLessEquals(normalSize(tester) * 1.1));
+    },
+  );
+
+  /// Opens the contents in the bar and chooses the entry called [title].
+  Future<void> chooseInContents(WidgetTester tester, String title) async {
+    await tester.tap(find.byTooltip(english.text('reader.contents')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, title));
+    await tester.pumpAndSettle();
+  }
+
+  AnchoredListState blockList(WidgetTester tester) =>
+      tester.state<AnchoredListState>(find.byType(AnchoredList));
+
+  testWidgets(
+    "a flowing book's contents go to a chapter's start, or to the place an entry's anchor names, "
+    'at the top; an entry outside the reading order goes nowhere',
+    (tester) async {
+      await openReader(
+        tester,
+        fileServer(() async => file(contentsBook)),
+        find.text('Chapter One', findRichText: true),
+      );
+
+      await chooseInContents(tester, 'The note');
+      expect(blockList(tester).topItem, 83);
+      expect(find.text('The note itself', findRichText: true), findsOneWidget);
+
+      await chooseInContents(tester, 'Chapter Two');
+      expect(blockList(tester).topItem, 42);
+
+      await chooseInContents(tester, 'Extra');
+      expect(
+        find.widgetWithText(ListTile, 'Extra'),
+        findsOneWidget,
+        reason: 'the contents stay open',
+      );
+      expect(blockList(tester).topItem, 42);
+    },
+  );
+
+  testWidgets('a book without contents has no contents button', (tester) async {
+    await openReader(
+      tester,
+      fileServer(() async => file(gatsby)),
+      firstChapter,
+    );
+
+    expect(find.byTooltip(english.text('reader.contents')), findsNothing);
+  });
+
+  testWidgets(
+    "a link in a flowing book's text goes to its place; one out of the book does nothing",
+    (tester) async {
+      await openReader(
+        tester,
+        fileServer(() async => file(contentsBook)),
+        find.text('Chapter One', findRichText: true),
+      );
+      blockList(tester).showItem(41);
+      await tester.pump();
+      final frame = tester.state<ReaderFrameState>(find.byType(ReaderFrame));
+      final barShown = frame.barShown;
+
+      // On the link's first letters: a tap beside the text of a line hits no link.
+      final toNote = find.textContaining('See the note', findRichText: true);
+      await tester.tapAt(tester.getTopLeft(toNote) + const Offset(8, 8));
+      await tester.pump();
+      expect(blockList(tester).topItem, 83);
+      expect(frame.barShown, barShown, reason: 'the link took the tap');
+
+      final away = find.textContaining('Out of the book', findRichText: true);
+      await tester.tapAt(tester.getTopLeft(away) + const Offset(8, 8));
+      await tester.pump();
+      expect(blockList(tester).topItem, 83);
+      expect(frame.barShown, barShown, reason: 'the link took the tap');
+    },
+  );
+
+  testWidgets(
+    "a fixed-layout book's contents turn to the page an entry's file makes",
+    (tester) async {
+      await openReader(
+        tester,
+        fileServer(() async => file(fixedContentsBook)),
+        find.text('The first page', findRichText: true),
+      );
+
+      await chooseInContents(tester, 'Second');
+
+      expect(find.text('The second page', findRichText: true), findsOneWidget);
+      expect(
+        find.text(english.text('reader.page_of', {'page': 2, 'count': 2})),
+        findsOneWidget,
+      );
     },
   );
 

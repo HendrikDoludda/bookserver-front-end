@@ -8,6 +8,7 @@ import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/data/session_http_client.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/notice.dart';
+import 'package:bookserver/ui/readers/contents_list.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:bookserver/ui/readers/reading_mode_button.dart';
 import 'package:bookserver/ui/readers/tap_zones.dart';
@@ -41,6 +42,9 @@ class _PdfReaderState extends State<PdfReader> {
 
   String? _errorKey;
   int? _page;
+
+  /// The PDF's own contents, once read; none while it hasn't any.
+  List<PdfOutlineNode> _outline = const [];
 
   /// The zoom step on screen; null before one is chosen in continuous scroll, and after a pinch.
   ZoomStep? _zoom;
@@ -109,11 +113,30 @@ class _PdfReaderState extends State<PdfReader> {
         _mode = details.mode ?? ReadingMode.continuous;
         _zoom = _startZoom(_mode);
       });
+      unawaited(_loadOutline(document));
     } on Exception {
       // pdfrx wraps every cause, a lost connection as much as a damaged file.
       if (mounted) {
         setState(() => _errorKey = 'reader.open_failed');
       }
+    }
+  }
+
+  /// Reads the PDF's outline, its own contents, once it is open.
+  Future<void> _loadOutline(PdfDocument document) async {
+    try {
+      final outline = await document.loadOutline();
+      if (mounted && identical(_document?.document, document)) {
+        setState(() => _outline = outline);
+      }
+    } on Exception {
+      // A PDF whose outline can't be read shows no contents; it reads as before.
+    }
+  }
+
+  void _goToDest(PdfDest dest) {
+    if (_viewer.isReady) {
+      unawaited(_viewer.goToDest(dest));
     }
   }
 
@@ -221,6 +244,8 @@ class _PdfReaderState extends State<PdfReader> {
             mode: _mode,
             onChanged: _setMode,
           ),
+        if (opened && _outline.isNotEmpty)
+          ContentsButton(rows: outlineRows(_outline, _goToDest)),
         if (opened) ZoomButton(step: _zoom, onChanged: _setZoom),
       ],
       status: document == null || _errorKey != null
@@ -269,6 +294,7 @@ class _PdfReaderState extends State<PdfReader> {
         onInteractionStart: _interactionStarted,
         onInteractionEnd: _interactionEnded,
         onViewerReady: _viewerReady,
+        onLink: _goToDest,
       ),
     );
   }
@@ -280,7 +306,8 @@ class _PdfReaderState extends State<PdfReader> {
 /// [onTap] is called for a single tap on the pages — in a paged mode, one in their middle third;
 /// [onTurn] with the pages to turn, forward in reading order, for an arrow key or a tap on an
 /// outer third in a paged mode; [onInteractionStart] and [onInteractionEnd] when a drag or a pinch
-/// starts and ends; [onViewerReady] once the viewer has laid out its first pages.
+/// starts and ends; [onViewerReady] once the viewer has laid out its first pages; [onLink] with
+/// the place a link to one of the PDF's own pages goes to — a link out of it does nothing.
 PdfViewerParams pdfViewerParams({
   required ReadingMode mode,
   required Color background,
@@ -290,6 +317,7 @@ PdfViewerParams pdfViewerParams({
   required VoidCallback onInteractionStart,
   required VoidCallback onInteractionEnd,
   required VoidCallback onViewerReady,
+  required ValueChanged<PdfDest> onLink,
 }) {
   final paged = mode != ReadingMode.continuous;
   final rightToLeft = mode == ReadingMode.rtl;
@@ -325,6 +353,15 @@ PdfViewerParams pdfViewerParams({
     onInteractionStart: (_) => onInteractionStart(),
     onInteractionEnd: (_) => onInteractionEnd(),
     onViewerReady: (document, controller) => onViewerReady(),
+    linkHandlerParams: PdfLinkHandlerParams(
+      // Only the PDF's own links: text that reads like an address would be a link to nowhere.
+      enableAutoLinkDetection: false,
+      onLinkTap: (link) {
+        if (link.dest case final dest?) {
+          onLink(dest);
+        }
+      },
+    ),
     // pdfrx's own arrow keys only nudge a paged view, which then snaps back.
     onKey: paged
         ? (params, key, isRealKeyPress) {
@@ -361,6 +398,21 @@ PdfViewerParams pdfViewerParams({
     },
   );
 }
+
+/// The rows of a PDF's [outline], each node going to its place through [go]; a node without one
+/// goes nowhere.
+List<ContentsRow> outlineRows(
+  List<PdfOutlineNode> outline,
+  ValueChanged<PdfDest> go,
+) => contentsRows(
+  outline,
+  titleOf: (node) => node.title,
+  childrenOf: (node) => node.children,
+  goOf: (node) => switch (node.dest) {
+    final dest? => () => go(dest),
+    null => null,
+  },
+);
 
 /// One page at a time from right to left, each fitted to the window: page 1 at the right end.
 @immutable
