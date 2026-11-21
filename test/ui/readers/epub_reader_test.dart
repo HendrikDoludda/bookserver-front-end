@@ -3,9 +3,11 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:bookserver/data/browse_api.dart';
+import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/epub_image.dart';
 import 'package:bookserver/ui/home_screen.dart';
+import 'package:bookserver/ui/readers/anchored_list.dart';
 import 'package:bookserver/ui/readers/open_book.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
@@ -22,6 +24,7 @@ import '../../support/epubs.dart';
 import '../../support/fake_path_provider.dart';
 import '../../support/fake_server.dart';
 import '../../support/images.dart';
+import '../../support/memory_preferences_store.dart';
 import '../../support/screens.dart';
 
 void main() {
@@ -147,17 +150,20 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   }
 
-  /// Starts the app signed in and opens the book the way a tap on its card does, until [shown].
+  /// Starts the app signed in, with the device's [preferences], and opens the book the way a tap on
+  /// its card does, until [shown].
   Future<void> openReader(
     WidgetTester tester,
     FakeServer server,
-    Finder shown,
-  ) async {
+    Finder shown, {
+    PreferencesController? preferences,
+  }) async {
     final session = await pumpApp(
       tester,
       catalog: english,
       store: signedInStore(),
       server: server,
+      preferences: preferences,
     );
     await tester.pumpAndSettle();
     await runUntil(
@@ -502,6 +508,133 @@ void main() {
     );
 
     expect(find.byTooltip(english.text('reader.zoom')), findsNothing);
+  });
+
+  /// The size the flowing text is set in.
+  double textSize(WidgetTester tester) => tester
+      .widget<HtmlWidget>(find.byType(HtmlWidget).first)
+      .textStyle!
+      .fontSize!;
+
+  /// The normal size of the reader's text: its size at 100 %.
+  double normalSize(WidgetTester tester) =>
+      Theme.of(tester.element(find.byType(HtmlWidget).first))
+          .textTheme
+          .bodyLarge!
+          .fontSize!;
+
+  IconButton fontButton(WidgetTester tester, IconData icon) =>
+      tester.widget<IconButton>(find.widgetWithIcon(IconButton, icon));
+
+  Future<void> tapFont(WidgetTester tester, String key) async {
+    await tester.tap(find.byTooltip(english.text(key)));
+    await tester.pump();
+  }
+
+  String percent(int value) =>
+      english.text('reader.percent', {'percent': value});
+
+  testWidgets("a flowing book's text grows and shrinks by 10 % a tap, from 80 to 200 %, the buttons off at "
+      'either end', (tester) async {
+    await openReader(
+      tester,
+      fileServer(() async => file(gatsby)),
+      firstChapter,
+    );
+    final normal = normalSize(tester);
+    expect(find.text(percent(100)), findsOneWidget);
+    expect(textSize(tester), normal);
+
+    await tapFont(tester, 'reader.font_larger');
+    expect(find.text(percent(110)), findsOneWidget);
+    expect(textSize(tester), moreOrLessEquals(normal * 1.1));
+
+    for (var tap = 0; tap < 9; tap++) {
+      await tapFont(tester, 'reader.font_larger');
+    }
+    expect(find.text(percent(200)), findsOneWidget);
+    expect(textSize(tester), moreOrLessEquals(normal * 2));
+    expect(fontButton(tester, Icons.text_increase).onPressed, isNull);
+
+    for (var tap = 0; tap < 12; tap++) {
+      await tapFont(tester, 'reader.font_smaller');
+    }
+    expect(find.text(percent(80)), findsOneWidget);
+    expect(textSize(tester), moreOrLessEquals(normal * 0.8));
+    expect(fontButton(tester, Icons.text_decrease).onPressed, isNull);
+    expect(fontButton(tester, Icons.text_increase).onPressed, isNotNull);
+  });
+
+  testWidgets('the block at the top stays there as the text changes size', (
+    tester,
+  ) async {
+    await openReader(
+      tester,
+      fileServer(() async => file(longBook)),
+      find.textContaining('Chapter 1, paragraph 1:', findRichText: true),
+    );
+    tester
+        .state<ScrollableState>(find.byType(Scrollable).last)
+        .position
+        .jumpTo(3000);
+    await tester.pump();
+    AnchoredListState list() =>
+        tester.state<AnchoredListState>(find.byType(AnchoredList));
+    final top = list().topItem;
+    expect(top, greaterThan(10), reason: 'well into the book');
+    // The scroll hid the bar.
+    tester.state<ReaderFrameState>(find.byType(ReaderFrame)).toggleBar();
+    await tester.pumpAndSettle();
+
+    for (final key in [
+      'reader.font_larger',
+      'reader.font_larger',
+      'reader.font_smaller',
+    ]) {
+      await tapFont(tester, key);
+      expect(list().topItem, top, reason: key);
+    }
+  });
+
+  testWidgets(
+    'the text size is kept on the device: the next start of the app opens a book at it',
+    (tester) async {
+      final kept = MemoryPreferencesStore();
+      await openReader(
+        tester,
+        fileServer(() async => file(gatsby)),
+        firstChapter,
+        preferences: PreferencesController(store: kept),
+      );
+      await tapFont(tester, 'reader.font_larger');
+      expect(kept.preferences?.fontPercent, 110);
+
+      // A new start of the app, from nothing on screen.
+      await tester.pumpWidget(const SizedBox());
+      final nextStart = PreferencesController(store: kept);
+      await nextStart.load();
+      await openReader(
+        tester,
+        fileServer(() async => file(gatsby)),
+        firstChapter,
+        preferences: nextStart,
+      );
+
+      expect(find.text(percent(110)), findsOneWidget);
+      expect(textSize(tester), moreOrLessEquals(normalSize(tester) * 1.1));
+    },
+  );
+
+  testWidgets('a fixed-layout book has no text size: its pages keep theirs', (
+    tester,
+  ) async {
+    await openReader(
+      tester,
+      fileServer(() async => file(fixedBook)),
+      find.text('The first page', findRichText: true),
+    );
+
+    expect(find.byTooltip(english.text('reader.font_larger')), findsNothing);
   });
 
   testWidgets('shows a picture from the book, and none from anywhere else', (

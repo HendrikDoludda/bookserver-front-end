@@ -4,11 +4,13 @@ import 'dart:math' as math;
 
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/epub_book.dart';
+import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/epub_image.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
+import 'package:bookserver/ui/preferences_scope.dart';
 import 'package:bookserver/ui/readers/anchored_list.dart';
 import 'package:bookserver/ui/readers/fixed_layout_page.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
@@ -33,6 +35,7 @@ class EpubReader extends StatefulWidget {
 class _EpubReaderState extends State<EpubReader> {
   final _frame = GlobalKey<ReaderFrameState>();
   final _turner = GlobalKey<PageTurnerState>();
+  final _list = GlobalKey<AnchoredListState>();
   File? _file;
   EpubBook? _epub;
   List<_Block> _blocks = const [];
@@ -146,15 +149,40 @@ class _EpubReaderState extends State<EpubReader> {
     _turner.currentState?.zoomTo(step);
   }
 
+  /// Makes a flowing book's text [by] percent larger, the block at the top staying there.
+  void _changeFont(PreferencesController preferences, int by) {
+    // Taken while the screen still shows the text at its old size.
+    final top = _list.currentState?.topItem;
+    unawaited(
+      preferences.setFontPercent(preferences.preferences.fontPercent + by),
+    );
+    if (top != null) {
+      _list.currentState?.showItem(top);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final epub = _epub;
+    final preferences = PreferencesScope.of(context);
+    final fontPercent = preferences.preferences.fontPercent;
+    final flowing = epub != null && _fixedLayout == null && _errorKey == null;
     return ReaderFrame(
       key: _frame,
       title: widget.book.title,
       controls: [
         if (_fixedLayout != null && _errorKey == null)
           ZoomButton(step: _pinched ? null : _zoom, onChanged: _setZoom),
+        if (flowing)
+          _FontSize(
+            percent: fontPercent,
+            onSmaller: fontPercent > Preferences.smallestFont
+                ? () => _changeFont(preferences, -Preferences.fontStep)
+                : null,
+            onLarger: fontPercent < Preferences.largestFont
+                ? () => _changeFont(preferences, Preferences.fontStep)
+                : null,
+          ),
       ],
       status: epub == null || _fixedLayout == null || _errorKey != null
           ? null
@@ -217,7 +245,46 @@ class _EpubReaderState extends State<EpubReader> {
     }
     return GestureDetector(
       onTap: _toggleBar,
-      child: _Blocks(book: epub, blocks: _blocks),
+      child: _Blocks(
+        listKey: _list,
+        book: epub,
+        blocks: _blocks,
+        fontPercent: PreferencesScope.of(context).preferences.fontPercent,
+      ),
+    );
+  }
+}
+
+/// The flowing reader's text size control: smaller, the size in percent, larger. A button without
+/// its callback is off, as at the smallest and the largest size.
+class _FontSize extends StatelessWidget {
+  const _FontSize({
+    required this.percent,
+    required this.onSmaller,
+    required this.onLarger,
+  });
+
+  final int percent;
+  final VoidCallback? onSmaller;
+  final VoidCallback? onLarger;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.text_decrease),
+          tooltip: context.t('reader.font_smaller'),
+          onPressed: onSmaller,
+        ),
+        Text(context.t('reader.percent', {'percent': percent})),
+        IconButton(
+          icon: const Icon(Icons.text_increase),
+          tooltip: context.t('reader.font_larger'),
+          onPressed: onLarger,
+        ),
+      ],
     );
   }
 }
@@ -231,20 +298,33 @@ typedef _Block = ({
   int textLength,
 });
 
-/// A book's blocks, chapter after chapter, in a column that keeps lines easy to follow.
+/// A book's blocks, chapter after chapter, in a column that keeps lines easy to follow, their text
+/// at [fontPercent] of its normal size.
 class _Blocks extends StatelessWidget {
-  const _Blocks({required this.book, required this.blocks});
+  const _Blocks({
+    required this.listKey,
+    required this.book,
+    required this.blocks,
+    required this.fontPercent,
+  });
 
+  final GlobalKey<AnchoredListState> listKey;
   final EpubBook book;
   final List<_Block> blocks;
+  final int fontPercent;
 
   @override
   Widget build(BuildContext context) {
     final imageWidth = (Widths.reading * MediaQuery.devicePixelRatioOf(context))
         .round();
-    final textStyle = Theme.of(context).textTheme.bodyLarge!;
+    final normal = Theme.of(context).textTheme.bodyLarge!;
+    // The blocks, the gaps between them and the guess at their heights all go by this style.
+    final textStyle = normal.copyWith(
+      fontSize: normal.fontSize! * fontPercent / 100,
+    );
     return LayoutBuilder(
       builder: (context, constraints) => AnchoredList(
+        key: listKey,
         count: blocks.length,
         guessedHeights: _guessedHeights(
           context,

@@ -32,6 +32,27 @@ void main() {
       }
     });
 
+    test("set a flowing book's text at 100 % until told otherwise", () {
+      expect(const Preferences().fontPercent, 100);
+    });
+
+    test('read back every text size they wrote', () {
+      for (var percent = 80; percent <= 200; percent += 10) {
+        final preferences = Preferences(fontPercent: percent);
+        expect(Preferences.fromJson(preferences.toJson()), preferences);
+      }
+    });
+
+    test('read a text size off the steps, out of range, or not a whole number as 100 %', () {
+      for (final value in <Object?>[70, 210, 105, 1.2, '120', null]) {
+        expect(
+          Preferences.fromJson({'fontPercent': value}).fontPercent,
+          100,
+          reason: '$value',
+        );
+      }
+    });
+
     test('refuse JSON that is no object', () {
       for (final json in [<Object?>[], 'left', null]) {
         expect(
@@ -113,6 +134,29 @@ void main() {
       expect(notified, 1);
       expect(store.preferences?.handedness, Handedness.left);
     });
+
+    test(
+      'a text size shows at once, is kept, and a launch after starts with it',
+      () async {
+        final store = MemoryPreferencesStore();
+        final controller = PreferencesController(store: store);
+        var notified = 0;
+        controller.addListener(() => notified++);
+
+        await controller.setFontPercent(150);
+
+        expect(controller.preferences.fontPercent, 150);
+        expect(notified, 1);
+        final nextLaunch = PreferencesController(store: store);
+        await nextLaunch.load();
+        expect(nextLaunch.preferences.fontPercent, 150);
+        expect(
+          nextLaunch.preferences.handedness,
+          Handedness.right,
+          reason: 'the other preferences as they were',
+        );
+      },
+    );
 
     test('choosing what is already chosen changes and keeps nothing', () async {
       final store = MemoryPreferencesStore();
