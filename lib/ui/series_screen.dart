@@ -1,3 +1,4 @@
+import 'package:bookserver/data/account_controller.dart';
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
@@ -16,12 +17,14 @@ class SeriesScreen extends StatelessWidget {
     super.key,
     required this.session,
     required this.catalogs,
+    required this.account,
     required this.library,
     required this.libraries,
   });
 
   final SessionController session;
   final CatalogController catalogs;
+  final AccountController account;
   final Library library;
 
   /// Every library, as the library grid loaded them.
@@ -37,10 +40,13 @@ class SeriesScreen extends StatelessWidget {
         (api, sessionToken) =>
             BrowseApi(api).seriesOf(library.id, sessionToken),
       ),
-      actions: [UserMenu(session: session, catalogs: catalogs)],
+      actions: [
+        UserMenu(session: session, catalogs: catalogs, account: account),
+      ],
       sidebar: LibrarySidebar(
         session: session,
         catalogs: catalogs,
+        account: account,
         libraries: libraries,
         current: library,
       ),
@@ -58,6 +64,7 @@ class SeriesScreen extends StatelessWidget {
                 builder: (_) => BooksScreen(
                   session: session,
                   catalogs: catalogs,
+                  account: account,
                   library: library,
                   libraries: libraries,
                   series: one,

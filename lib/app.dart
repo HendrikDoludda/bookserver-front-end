@@ -1,3 +1,4 @@
+import 'package:bookserver/data/account_controller.dart';
 import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
@@ -17,11 +18,13 @@ class BookserverApp extends StatefulWidget {
     super.key,
     required this.catalogs,
     required this.session,
+    required this.account,
     required this.preferences,
   });
 
   final CatalogController catalogs;
   final SessionController session;
+  final AccountController account;
   final PreferencesController preferences;
 
   @override
@@ -95,6 +98,7 @@ class _BookserverAppState extends State<BookserverApp> {
                 LoggedIn() => HomeScreen(
                   session: widget.session,
                   catalogs: widget.catalogs,
+                  account: widget.account,
                 ),
               },
             ),

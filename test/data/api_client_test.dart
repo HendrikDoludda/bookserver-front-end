@@ -57,6 +57,42 @@ void main() {
       expect(answer, {'locale': null});
     });
 
+    test('patchJson sends a PATCH the same way', () async {
+      final server = FakeServer((_) async => jsonAnswer({'id': 3}));
+
+      final answer = await clientFor(server).patchJson(
+        '/api/v1/libraries/3',
+        body: {'description': null},
+        bearer: 'token-1',
+      );
+
+      final request = server.requests.single;
+      expect(request.method, 'PATCH');
+      expect(request.url.path, '/api/v1/libraries/3');
+      expect(request.headers['authorization'], 'Bearer token-1');
+      expect(request.headers['content-type'], 'application/json');
+      expect(utf8.decode(request.bodyBytes), '{"description":null}');
+      expect(answer, {'id': 3});
+    });
+
+    test(
+      'deleteJson sends a DELETE without a body; a 204 answers null',
+      () async {
+        final server = FakeServer((_) async => http.Response('', 204));
+
+        final answer = await clientFor(server)
+            .deleteJson('/api/v1/series/4', bearer: 'token-1');
+
+        final request = server.requests.single;
+        expect(request.method, 'DELETE');
+        expect(request.url.path, '/api/v1/series/4');
+        expect(request.headers['authorization'], 'Bearer token-1');
+        expect(request.headers.containsKey('content-type'), isFalse);
+        expect(request.bodyBytes, isEmpty);
+        expect(answer, isNull);
+      },
+    );
+
     test('without a token or a body sends neither', () async {
       final server = FakeServer((_) async => jsonAnswer([]));
 

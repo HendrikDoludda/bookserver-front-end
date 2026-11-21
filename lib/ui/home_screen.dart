@@ -1,3 +1,4 @@
+import 'package:bookserver/data/account_controller.dart';
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
@@ -11,10 +12,16 @@ import 'package:material_ui/material_ui.dart';
 
 /// The first screen once signed in: the server's libraries.
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key, required this.session, required this.catalogs});
+  const HomeScreen({
+    super.key,
+    required this.session,
+    required this.catalogs,
+    required this.account,
+  });
 
   final SessionController session;
   final CatalogController catalogs;
+  final AccountController account;
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +32,9 @@ class HomeScreen extends StatelessWidget {
       load: () => session.authorized(
         (api, sessionToken) => BrowseApi(api).libraries(sessionToken),
       ),
-      actions: [UserMenu(session: session, catalogs: catalogs)],
+      actions: [
+        UserMenu(session: session, catalogs: catalogs, account: account),
+      ],
       builder: (context, libraries) => CoverGrid(
         itemCount: libraries.length,
         withDetail: true,
@@ -44,6 +53,7 @@ class HomeScreen extends StatelessWidget {
                 builder: (_) => SeriesScreen(
                   session: session,
                   catalogs: catalogs,
+                  account: account,
                   library: library,
                   libraries: libraries,
                 ),

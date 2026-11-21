@@ -1,4 +1,5 @@
 import 'package:bookserver/app.dart';
+import 'package:bookserver/data/account_controller.dart';
 import 'package:bookserver/data/auth_api.dart';
 import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/data/session.dart';
@@ -114,8 +115,9 @@ Future<void> chooseInUserMenu(
 
 /// Starts the whole app as `main()` does, on [store]'s record and [server]. The app shows [catalog]
 /// throughout, unless [followCatalog]: then [catalog] is the built-in English and the app follows
-/// the session to [server]'s catalog, whose requests the test answers. Without [preferences], the
-/// device's are the defaults, kept in memory.
+/// the session to [server]'s catalog, whose requests the test answers. The signed-in user counts
+/// as no admin, unless [followAccount]: then the app asks [server] for the account, as `main()`
+/// does. Without [preferences], the device's are the defaults, kept in memory.
 Future<SessionController> pumpApp(
   WidgetTester tester, {
   required Catalog catalog,
@@ -123,6 +125,7 @@ Future<SessionController> pumpApp(
   required FakeServer server,
   bool allowHttp = true,
   bool followCatalog = false,
+  bool followAccount = false,
   PreferencesController? preferences,
 }) async {
   final session = SessionController(
@@ -141,10 +144,15 @@ Future<SessionController> pumpApp(
   if (followCatalog) {
     await catalogs.load();
   }
+  final account = AccountController(session: session);
+  if (followAccount) {
+    account.load();
+  }
   await tester.pumpWidget(
     BookserverApp(
       catalogs: catalogs,
       session: session,
+      account: account,
       preferences:
           preferences ?? PreferencesController(store: MemoryPreferencesStore()),
     ),

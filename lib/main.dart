@@ -1,4 +1,5 @@
 import 'package:bookserver/app.dart';
+import 'package:bookserver/data/account_controller.dart';
 import 'package:bookserver/data/catalog_store.dart';
 import 'package:bookserver/data/preferences.dart';
 import 'package:bookserver/data/session_controller.dart';
@@ -25,12 +26,14 @@ Future<void> main() async {
     session: session,
   );
   await catalogs.load();
+  final account = AccountController(session: session)..load();
   final preferences = PreferencesController(store: FilePreferencesStore());
   await preferences.load();
   runApp(
     BookserverApp(
       catalogs: catalogs,
       session: session,
+      account: account,
       preferences: preferences,
     ),
   );

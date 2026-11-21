@@ -58,6 +58,12 @@ class ApiClient {
   Future<Object?> putJson(String path, {Object? body, String? bearer}) =>
       _json('PUT', path, body: body, bearer: bearer);
 
+  Future<Object?> patchJson(String path, {Object? body, String? bearer}) =>
+      _json('PATCH', path, body: body, bearer: bearer);
+
+  Future<Object?> deleteJson(String path, {String? bearer}) =>
+      _json('DELETE', path, bearer: bearer);
+
   /// The answer to a GET for [path] that names [etag] in `If-None-Match`: a 304 while the copy
   /// [etag] names is still current, else the 2xx with its whole body. Any other status throws as
   /// [getJson] does.

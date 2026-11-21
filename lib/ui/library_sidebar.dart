@@ -1,3 +1,4 @@
+import 'package:bookserver/data/account_controller.dart';
 import 'package:bookserver/data/browse_api.dart';
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
@@ -13,12 +14,14 @@ class LibrarySidebar extends StatelessWidget {
     super.key,
     required this.session,
     required this.catalogs,
+    required this.account,
     required this.libraries,
     required this.current,
   });
 
   final SessionController session;
   final CatalogController catalogs;
+  final AccountController account;
   final List<Library> libraries;
   final Library current;
 
@@ -73,6 +76,7 @@ class LibrarySidebar extends StatelessWidget {
         builder: (_) => SeriesScreen(
           session: session,
           catalogs: catalogs,
+          account: account,
           library: library,
           libraries: libraries,
         ),
