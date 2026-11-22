@@ -79,6 +79,20 @@ class Catalog {
     return _fill(text, {...values, 'count': count});
   }
 
+  /// [value] as the catalog's language writes it — `1,5` in German — and without grouping, as a
+  /// volume or a chapter reads: `1001`, never `1,001`. A language whose number format intl lacks
+  /// writes it as English does.
+  String number(num value) {
+    final locale = Intl.verifiedLocale(
+      language,
+      NumberFormat.localeExists,
+      onFailure: (_) => 'en',
+    );
+    return (NumberFormat.decimalPattern(
+      locale,
+    )..turnOffGrouping()).format(value);
+  }
+
   static String _fill(String text, Map<String, Object> values) {
     if (values.isEmpty) {
       return text;
@@ -146,6 +160,9 @@ extension CatalogContext on BuildContext {
     int count, [
     Map<String, Object> values = const {},
   ]) => CatalogScope.of(this).plural(key, count, values);
+
+  /// [value] as the language of the nearest [CatalogScope] writes it ([Catalog.number]).
+  String number(num value) => CatalogScope.of(this).number(value);
 }
 
 // The backend's placeholder, `PLACEHOLDER` in its `translation_seed.rs`: what it checks to match

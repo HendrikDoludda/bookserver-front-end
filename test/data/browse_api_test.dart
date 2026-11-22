@@ -18,7 +18,7 @@ void main() {
     String title = 'The Long Road',
     String format = 'cbz',
     int? volume = 1,
-    int? chapter,
+    num? chapter,
   }) => {
     'id': id,
     'title': title,
@@ -124,6 +124,19 @@ void main() {
       ],
     );
     expectGet(server, '/api/v1/series/2/books');
+  });
+
+  test('a decimal chapter reads as one, and keeps the list whole', () async {
+    final server = FakeServer(
+      (_) async => jsonAnswer([
+        bookJson(id: 7, volume: null, chapter: 1.5),
+        bookJson(id: 8, volume: null, chapter: 12),
+      ]),
+    );
+
+    final books = await apiFor(server).booksOf(2, 'session-1');
+
+    expect([for (final book in books) book.chapter], [1.5, 12]);
   });
 
   test('reads every format the server names, any other as unsupported', () {

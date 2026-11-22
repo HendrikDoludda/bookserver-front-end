@@ -27,7 +27,7 @@ void main() {
     int id, {
     String title = 'Alpha',
     int? volume,
-    int? chapter,
+    num? chapter,
     String format = 'cbz',
   }) => {
     'id': id,
@@ -66,10 +66,14 @@ void main() {
   );
 
   /// Starts the app signed in, opens the library "Manga" and taps its series "alpha".
-  Future<void> openAlpha(WidgetTester tester, FakeServer server) async {
+  Future<void> openAlpha(
+    WidgetTester tester,
+    FakeServer server, {
+    Catalog? catalog,
+  }) async {
     await pumpApp(
       tester,
-      catalog: english,
+      catalog: catalog ?? english,
       store: signedInStore(),
       server: server,
     );
@@ -82,6 +86,26 @@ void main() {
   VoidCallback? reloadAction(WidgetTester tester) => tester
       .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.refresh))
       .onPressed;
+
+  testWidgets('a decimal chapter is named as the language writes numbers', (
+    tester,
+  ) async {
+    final german = Catalog.fromJson(
+      {
+        'browse': {'chapter': 'Kapitel {number}'},
+      },
+      language: 'de',
+      fallback: english,
+    );
+    final server = alphaServer(
+      () async => jsonAnswer([bookJson(7, chapter: 1.5)]),
+    );
+
+    await openAlpha(tester, server, catalog: german);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Kapitel 1,5'), findsOneWidget);
+  });
 
   testWidgets(
     'names each book by its volume and chapter, in the order the server sends',

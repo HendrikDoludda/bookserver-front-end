@@ -69,15 +69,17 @@ class BooksScreen extends StatelessWidget {
 }
 
 /// A book's name within its series: its volume and chapter, or its title when it has neither.
-String bookName(BuildContext context, Book book) => switch ((
-  book.volume,
-  book.chapter,
-)) {
-  (final volume?, final chapter?) => context.t('browse.volume_chapter', {
-    'volume': volume,
-    'chapter': chapter,
-  }),
-  (final volume?, null) => context.t('browse.volume', {'number': volume}),
-  (null, final chapter?) => context.t('browse.chapter', {'number': chapter}),
-  (null, null) => book.title,
-};
+String bookName(BuildContext context, Book book) =>
+    switch ((book.volume, book.chapter)) {
+      (final volume?, final chapter?) => context.t('browse.volume_chapter', {
+        'volume': context.number(volume),
+        'chapter': context.number(chapter),
+      }),
+      (final volume?, null) => context.t('browse.volume', {
+        'number': context.number(volume),
+      }),
+      (null, final chapter?) => context.t('browse.chapter', {
+        'number': context.number(chapter),
+      }),
+      (null, null) => book.title,
+    };

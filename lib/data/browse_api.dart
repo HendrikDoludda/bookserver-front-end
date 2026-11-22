@@ -58,7 +58,9 @@ class Book {
   final String title;
   final BookFormat format;
   final int? volume;
-  final int? chapter;
+
+  /// A chapter can be a decimal one: 1.5 lies between chapters 1 and 2.
+  final num? chapter;
 }
 
 /// How a book's pages run: right to left, left to right, or top to bottom in one scrolling
@@ -158,7 +160,7 @@ class BrowseApi {
         'title': String title,
         'format': String format,
         'volume_number': int? volume,
-        'chapter_number': int? chapter,
+        'chapter_number': num? chapter,
       } =>
         Book(
           id: id,

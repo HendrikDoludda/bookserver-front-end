@@ -185,6 +185,29 @@ void main() {
     });
   });
 
+  group('number', () {
+    Catalog inLanguage(String language) =>
+        Catalog.fromJson(<String, Object?>{}, language: language);
+
+    test(
+      'writes a decimal as the language does, a whole number without a point',
+      () {
+        expect(inLanguage('en').number(1.5), '1.5');
+        expect(inLanguage('de').number(1.5), '1,5');
+        expect(inLanguage('de').number(12), '12');
+      },
+    );
+
+    test('never groups the digits, as a volume or a chapter reads', () {
+      expect(inLanguage('en').number(1001), '1001');
+      expect(inLanguage('de').number(1001), '1001');
+    });
+
+    test('a language intl has no number format for writes as English does', () {
+      expect(inLanguage('qaa').number(1.5), '1.5');
+    });
+  });
+
   group('fallback', () {
     final english = Catalog.fromJson({
       'login': {'title': 'Sign in', 'subtitle': 'Welcome back'},
