@@ -54,6 +54,23 @@ class ManagedSeries {
   final List<int> libraryIds;
 }
 
+/// A folder the server scans, as an admin manages it.
+class ManagedDirectory {
+  const ManagedDirectory({
+    required this.id,
+    required this.path,
+    required this.libraryId,
+  });
+
+  final int id;
+
+  /// Its full path on the server.
+  final String path;
+
+  /// The library its series join; null for none.
+  final int? libraryId;
+}
+
 /// A new value for a field that can be empty: `Change(null)` clears it, and no `Change` at all
 /// leaves it as it is.
 final class Change<T> {
@@ -62,8 +79,8 @@ final class Change<T> {
   final T value;
 }
 
-/// What an admin changes on the server: libraries, which series they hold, series, and the covers
-/// both show.
+/// What an admin changes on the server: libraries, which series they hold, series, the covers
+/// both show, and the folders the server scans.
 class ManageApi {
   ManageApi(this._client);
 
@@ -215,6 +232,50 @@ class ManageApi {
       bearer: sessionToken,
     );
   }
+
+  /// The folders the server scans, by path.
+  Future<List<ManagedDirectory>> directories(String sessionToken) =>
+      _list('/api/v1/directories', sessionToken, _directory);
+
+  /// Adds the folder at [path], a full path on the server, and answers it; the server then scans
+  /// it in the background. With [libraryType], a new library of that type receives its series,
+  /// named [libraryName] or, without one, after the folder.
+  Future<ManagedDirectory> addDirectory(
+    String sessionToken, {
+    required String path,
+    LibraryType? libraryType,
+    String? libraryName,
+  }) async => _directory(
+    await _client.postJson(
+      '/api/v1/directories',
+      body: {
+        'path': path,
+        'create_library': libraryType != null,
+        'library_type': ?libraryType?.name,
+        'library_name': ?libraryName,
+      },
+      bearer: sessionToken,
+    ),
+  );
+
+  /// Removes the folder: its books leave the catalog, with the series left without books; its
+  /// library and the files stay.
+  Future<void> removeDirectory(String sessionToken, int directoryId) async {
+    await _client.deleteJson(
+      '/api/v1/directories/$directoryId',
+      bearer: sessionToken,
+    );
+  }
+
+  static ManagedDirectory _directory(Object? json) => switch (json) {
+    {
+      'id': final int id,
+      'path': final String path,
+      'library_id': final int? libraryId,
+    } =>
+      ManagedDirectory(id: id, path: path, libraryId: libraryId),
+    _ => throw const FormatException('Not a folder.'),
+  };
 
   static ManagedLibrary _library(Object? json) => switch (json) {
     {

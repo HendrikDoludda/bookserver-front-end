@@ -278,4 +278,99 @@ void main() {
       ),
     );
   });
+
+  /// A folder exactly as `GET /api/v1/directories` sends one.
+  Map<String, Object?> directory({Object? libraryId = 3}) => {
+    'id': 7,
+    'path': '/books/Manga',
+    'library_id': libraryId,
+  };
+
+  test('directories reads each folder and its library, or none', () async {
+    final server = FakeServer(
+      (_) async => jsonAnswer([directory(), directory(libraryId: null)]),
+    );
+
+    final directories = await apiFor(server).directories('session-1');
+
+    expect(
+      [for (final one in directories) (one.id, one.path, one.libraryId)],
+      [(7, '/books/Manga', 3), (7, '/books/Manga', null)],
+    );
+    expect(onlyRequest(server).url.path, '/api/v1/directories');
+    expect(onlyRequest(server).headers['authorization'], 'Bearer session-1');
+  });
+
+  test(
+    'addDirectory sends a type and a name only with a library of its own',
+    () async {
+      final server = FakeServer((_) async => jsonAnswer(directory(), 201));
+      final api = apiFor(server);
+
+      final added = await api.addDirectory(
+        'session-1',
+        path: '/books/Manga',
+        libraryType: LibraryType.comics,
+        libraryName: 'Manga',
+      );
+      await api.addDirectory(
+        'session-1',
+        path: '/books/Manga',
+        libraryType: LibraryType.books,
+      );
+      await api.addDirectory('session-1', path: '/books/inbox');
+
+      expect((added.id, added.libraryId), (7, 3));
+      expect(
+        [for (final request in server.requests) request.method],
+        ['POST', 'POST', 'POST'],
+      );
+      expect(
+        [for (final request in server.requests) jsonDecode(request.body)],
+        [
+          {
+            'path': '/books/Manga',
+            'create_library': true,
+            'library_type': 'comics',
+            'library_name': 'Manga',
+          },
+          {
+            'path': '/books/Manga',
+            'create_library': true,
+            'library_type': 'books',
+          },
+          {'path': '/books/inbox', 'create_library': false},
+        ],
+      );
+    },
+  );
+
+  test('removeDirectory sends a DELETE for the folder', () async {
+    final server = FakeServer((_) async => http.Response('', 204));
+
+    await apiFor(server).removeDirectory('session-1', 7);
+
+    expect(onlyRequest(server).method, 'DELETE');
+    expect(onlyRequest(server).url.path, '/api/v1/directories/7');
+  });
+
+  test('a folder in the wrong shape is a FormatException', () async {
+    for (final answer in <Object?>[
+      [
+        <String, Object?>{'id': 7, 'path': '/books/Manga'},
+      ],
+      [directory(libraryId: 'Manga')],
+      [
+        {...directory(), 'id': '7'},
+      ],
+      directory(),
+    ]) {
+      final server = FakeServer((_) async => jsonAnswer(answer));
+      await expectLater(
+        apiFor(server).directories('session-1'),
+        throwsFormatException,
+        reason: '$answer',
+      );
+    }
+  });
 }

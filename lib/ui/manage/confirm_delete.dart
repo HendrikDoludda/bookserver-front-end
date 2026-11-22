@@ -2,11 +2,12 @@ import 'package:bookserver/i18n/catalog.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// Asks before deleting: the question [titleKey], what follows from it [explanationKey], and
-/// Delete or Cancel. Answers true only for Delete.
+/// [confirmKey] — Delete unless given — or Cancel. Answers true only for [confirmKey].
 Future<bool> confirmDelete(
   BuildContext context, {
   required String titleKey,
   required String explanationKey,
+  String confirmKey = 'manage.delete',
 }) async {
   final confirmed = await showDialog<bool>(
     context: context,
@@ -20,7 +21,7 @@ Future<bool> confirmDelete(
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
-          child: Text(context.t('manage.delete')),
+          child: Text(context.t(confirmKey)),
         ),
       ],
     ),

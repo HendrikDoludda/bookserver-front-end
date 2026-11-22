@@ -7,17 +7,22 @@ import 'images.dart';
 import 'screens.dart';
 
 /// Stands in for a server an admin manages: it answers the account as an admin's, and the
-/// library and series calls from its own lists, which those calls change as the server would.
+/// library, series and folder calls from its own lists, which those calls change as the server
+/// would.
 /// A series' books come from [books], and the covers it has are the paths in [covers]; choosing
 /// or resetting a cover only answers 204.
 class ManageServer {
   ManageServer({
     List<Map<String, Object?>> libraries = const [],
     List<Map<String, Object?>> series = const [],
+    List<Map<String, Object?>> directories = const [],
     this.books = const {},
     this.covers = const {},
   }) : libraries = [
          for (final one in libraries) {...one},
+       ],
+       directories = [
+         for (final one in directories) {...one},
        ],
        series = [
          for (final one in series)
@@ -34,6 +39,9 @@ class ManageServer {
   /// The series as `GET /api/v1/series` sends them.
   final List<Map<String, Object?>> series;
 
+  /// The folders as `GET /api/v1/directories` sends them.
+  final List<Map<String, Object?>> directories;
+
   /// Each series' books by its id, as `GET /api/v1/series/{id}/books` sends them.
   final Map<int, List<Map<String, Object?>>> books;
 
@@ -44,6 +52,7 @@ class ManageServer {
   http.Response? Function(http.Request request)? refuse;
 
   var _nextLibraryId = 100;
+  var _nextDirectoryId = 200;
 
   late final FakeServer fake = bookServer(_answer);
 
@@ -99,6 +108,9 @@ class ManageServer {
       ('GET', ['series', final id, 'books']) => jsonAnswer(
         books[int.parse(id)] ?? const [],
       ),
+      ('GET', ['directories']) => jsonAnswer(directories),
+      ('POST', ['directories']) => _addDirectory(body),
+      ('DELETE', ['directories', final id]) => _removeDirectory(id),
       ('PUT' || 'DELETE', ['series' || 'libraries', _, 'cover']) =>
         http.Response('', 204),
       ('GET', ['covers', _, _]) when covers.contains(request.url.path) =>
@@ -176,6 +188,42 @@ class ManageServer {
     return http.Response('', 204);
   }
 
+  /// Adds the folder, and with `create_library` its library: named `library_name`, else after
+  /// the folder.
+  http.Response _addDirectory(Map<String, Object?> body) {
+    final path = body['path']! as String;
+    Object? libraryId;
+    if (body['create_library'] == true) {
+      libraryId = _nextLibraryId++;
+      libraries.add({
+        'id': libraryId,
+        'name':
+            body['library_name'] ??
+            path.split('/').lastWhere((part) => part.isNotEmpty),
+        'library_type': body['library_type'],
+        'description': null,
+      });
+    }
+    final directory = {
+      'id': _nextDirectoryId++,
+      'path': path,
+      'library_id': libraryId,
+    };
+    directories.add(directory);
+    return jsonAnswer(directory, 201);
+  }
+
+  http.Response _removeDirectory(String id) {
+    final directory = directories
+        .where((one) => '${one['id']}' == id)
+        .firstOrNull;
+    if (directory == null) {
+      return notFound();
+    }
+    directories.remove(directory);
+    return http.Response('', 204);
+  }
+
   http.Response _deleteSeries(String id) {
     final one = _series(id);
     if (one == null) {
@@ -230,4 +278,11 @@ Map<String, Object?> libraryJson(
   'name': name,
   'library_type': type,
   'description': description,
+};
+
+/// A folder as `GET /api/v1/directories` sends it.
+Map<String, Object?> directoryJson(int id, String path, {int? libraryId}) => {
+  'id': id,
+  'path': path,
+  'library_id': libraryId,
 };

@@ -1,10 +1,12 @@
 import 'package:bookserver/data/session_controller.dart';
 import 'package:bookserver/i18n/catalog.dart';
+import 'package:bookserver/ui/manage/manage_directories_screen.dart';
 import 'package:bookserver/ui/manage/manage_libraries_screen.dart';
 import 'package:bookserver/ui/manage/manage_series_screen.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// What an admin manages, one entry per list: the libraries and the series.
+/// What an admin manages, one entry per list: the folders the server scans, the libraries and the
+/// series.
 class ManageScreen extends StatelessWidget {
   const ManageScreen({super.key, required this.session});
 
@@ -16,6 +18,13 @@ class ManageScreen extends StatelessWidget {
       appBar: AppBar(title: Text(context.t('manage.title'))),
       body: ListView(
         children: [
+          ListTile(
+            leading: const Icon(Icons.folder),
+            title: Text(context.t('manage.folders')),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () =>
+                _open(context, ManageDirectoriesScreen(session: session)),
+          ),
           ListTile(
             leading: const Icon(Icons.collections_bookmark),
             title: Text(context.t('manage.libraries')),
