@@ -41,3 +41,7 @@ permissions, app icons, signing, entitlements and minimum OS versions. `build/` 
 `version: 1.0.0+1` in `pubspec.yaml` means `<version name>+<build number>`. It becomes
 `CFBundleShortVersionString` / `CFBundleVersion` on Apple and `versionName` /
 `versionCode` on Android. Increase the build number for every store upload.
+
+## License
+
+Copyright © 2026 Hendrik Doludda. Licensed under the [MIT License](LICENSE).
