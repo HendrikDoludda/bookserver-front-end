@@ -51,25 +51,81 @@ class PageBackground {
   final Alignment alignment;
 }
 
-/// A line of text, placed by its top left corner.
+/// A line of text, placed by its top or its bottom left corner.
 class TextLine {
   const TextLine({
     required this.position,
     required this.style,
     required this.runs,
-    this.rotation = 0,
+    this.placedByBottom = false,
+    this.transform = LineTransform.identity,
+    this.origin = LineOrigin.center,
   });
 
+  /// Where its top left corner sits on the page — its bottom left corner when [placedByBottom].
   final Offset position;
+
+  /// Whether the book places the line by its bottom edge, which then stays where it is whatever
+  /// height the line's text gives it.
+  final bool placedByBottom;
 
   /// The line's own text style: as in CSS, the line is at least as tall as its line height,
   /// whatever the styles of its runs.
   final RunStyle style;
 
-  /// Clockwise, in radians, around the line's top left.
-  final double rotation;
+  /// How the line is scaled and turned, around [origin].
+  final LineTransform transform;
+
+  final LineOrigin origin;
 
   final List<TextRun> runs;
+}
+
+/// A 2D transform as CSS's `matrix(a, b, c, d, e, f)` writes it: it takes the point (x, y) to
+/// (a·x + c·y + e, b·x + d·y + f).
+class LineTransform {
+  const LineTransform(this.a, this.b, this.c, this.d, this.e, this.f);
+
+  /// Clockwise by [angle] radians.
+  LineTransform.rotation(double angle)
+    : this(
+        math.cos(angle),
+        math.sin(angle),
+        -math.sin(angle),
+        math.cos(angle),
+        0,
+        0,
+      );
+
+  static const identity = LineTransform(1, 0, 0, 1, 0, 0);
+
+  final double a;
+  final double b;
+  final double c;
+  final double d;
+  final double e;
+  final double f;
+
+  /// [other] first, then this: CSS applies a list of transforms from its last one.
+  LineTransform operator *(LineTransform other) => LineTransform(
+    a * other.a + c * other.b,
+    b * other.a + d * other.b,
+    a * other.c + c * other.d,
+    b * other.c + d * other.d,
+    a * other.e + c * other.f + e,
+    b * other.e + d * other.f + f,
+  );
+}
+
+/// The point a line is transformed around: [alignment] within the line's box, moved by [offset].
+class LineOrigin {
+  const LineOrigin(this.alignment, [this.offset = Offset.zero]);
+
+  /// CSS's starting value.
+  static const center = LineOrigin(Alignment.center);
+
+  final Alignment alignment;
+  final Offset offset;
 }
 
 /// A stretch of a line in one style.
@@ -158,7 +214,12 @@ class _PageReader {
         (box == null ? null : _boxSize(box)) ??
         (throw FormatException('The page $_path gives no size.'));
     final lines = <TextLine>[];
-    _addLines(body, Offset.zero, null, lines);
+    _addLines(
+      body,
+      (origin: Offset.zero, bottom: _size.height, height: _size.height),
+      null,
+      lines,
+    );
     return FixedPage(
       size: _size,
       background: _background([?box, body]),
@@ -244,33 +305,45 @@ class _PageReader {
     return PageBackground(color: color);
   }
 
-  /// Adds the lines inside [element], or [element] itself, to [lines]: an element with a `left`
-  /// or `top` and none inside it is a line; one with some inside moves them by its own. Answers
-  /// whether [element] is or holds such an element.
+  /// Adds the lines inside [element], or [element] itself, to [lines]: an element with a `left`,
+  /// `top` or `bottom` and none inside it is a line; one with some inside is the box they are
+  /// placed in. [element] is placed in [frame]. Answers whether [element] is or holds such an
+  /// element.
   bool _addLines(
     XmlElement element,
-    Offset origin,
+    _Frame frame,
     int? link,
     List<TextLine> lines,
   ) {
     final own = _ownOf(element);
     final em = _textStyleOf(element).fontSize;
-    final left = _winning(
+    double? length(String property, double percentOf) => _winning(
       own,
-      'left',
-      (value) => _length(value.text, em: em, percentOf: _size.width),
+      property,
+      (value) => _length(value.text, em: em, percentOf: percentOf),
     );
-    final top = _winning(
-      own,
-      'top',
-      (value) => _length(value.text, em: em, percentOf: _size.height),
+    final left = length('left', _size.width);
+    final top = length('top', _size.height);
+    final bottom = length('bottom', frame.height);
+    final placed = left != null || top != null || bottom != null;
+    // CSS places a box by its top when it gives both.
+    final byBottom = top == null && bottom != null;
+    final position = Offset(
+      frame.origin.dx + (left ?? 0),
+      byBottom ? frame.bottom - bottom : frame.origin.dy + (top ?? 0),
     );
-    final placed = left != null || top != null;
-    final position = origin + Offset(left ?? 0, top ?? 0);
     final linkHere = _linkOf(element) ?? link;
+    var inner = frame;
+    if (placed) {
+      final height = _nonNegative(length('height', frame.height));
+      final origin = byBottom ? position - Offset(0, height ?? 0) : position;
+      inner = height == null
+          ? (origin: origin, bottom: frame.bottom, height: frame.height)
+          : (origin: origin, bottom: origin.dy + height, height: height);
+    }
     var holdsPlaced = false;
     for (final child in element.childElements) {
-      holdsPlaced = _addLines(child, position, linkHere, lines) || holdsPlaced;
+      holdsPlaced = _addLines(child, inner, linkHere, lines) || holdsPlaced;
     }
     if (placed && !holdsPlaced) {
       final runs = _runs(element, linkHere);
@@ -278,10 +351,18 @@ class _PageReader {
         lines.add(
           TextLine(
             position: position,
+            placedByBottom: byBottom,
             style: _textStyleOf(element),
-            rotation:
-                _winning(own, 'transform', (value) => _rotation(value.text)) ??
-                0,
+            transform:
+                _winning(own, 'transform', (value) => _transform(value.text)) ??
+                LineTransform.identity,
+            origin:
+                _winning(
+                  own,
+                  'transform-origin',
+                  (value) => _origin(value.text, em),
+                ) ??
+                LineOrigin.center,
             runs: runs,
           ),
         );
@@ -369,6 +450,11 @@ class _PageReader {
   }
 }
 
+/// What the elements inside a placed box are placed from: the box's top left on the page, and the
+/// bottom edge and height of the nearest box around them that gives its height — the page's when
+/// none does, as CSS places a box with no placed box around it on the page.
+typedef _Frame = ({Offset origin, double bottom, double height});
+
 /// What [element] inherits from [parent], with its own declarations on top.
 RunStyle _inherit(RunStyle parent, _Own own) {
   final fontSize =
@@ -455,20 +541,28 @@ class _StyleSheet {
     }
   }
 
+  /// Reads the rules and font files of the stylesheet at [path]. Its rules and declarations are
+  /// split here rather than by csslib, which drops the rest of a file at the first value it
+  /// can't parse — a browser drops only that declaration.
   factory _StyleSheet.parse(String text, String path) {
-    final tree = css.parse(text);
     final rules = <_Rule>[];
-    for (final node in tree.topLevels) {
-      if (node is css.RuleSet) {
-        final declarations = _declarations(node.declarationGroup, path);
-        for (final selector in node.selectorGroup?.selectors ?? const []) {
-          if (_Selector.of(selector) case final simple?) {
-            rules.add(_Rule(simple, declarations, rules.length));
-          }
+    final fonts = <String, List<String>>{};
+    for (final (prelude, body) in _blocks(_withoutComments(text))) {
+      if (body == null) {
+        continue;
+      }
+      if (_atRuleName.firstMatch(prelude) case final atRule?) {
+        if (atRule[1]!.toLowerCase() == 'font-face') {
+          _addFontFace(fonts, _declarations(body, path), path);
         }
+        continue;
+      }
+      final declarations = _declarations(body, path);
+      for (final selector in _selectors(prelude)) {
+        rules.add(_Rule(selector, declarations, rules.length));
       }
     }
-    return _StyleSheet._(rules, (_FontFaces(path)..visitTree(tree)).fonts);
+    return _StyleSheet._(rules, fonts);
   }
 
   final Map<String, List<String>> fonts;
@@ -542,44 +636,42 @@ class _Selector {
       this.classes.every(classes.contains);
 }
 
-/// Collects the font files of a stylesheet's `@font-face` rules, which csslib hands out only to
-/// a visitor.
-class _FontFaces extends css.Visitor {
-  _FontFaces(this._path);
+/// The simple selectors of a rule's [prelude]; none when csslib can't read it, as a browser
+/// drops a rule whose selector it can't read.
+List<_Selector> _selectors(String prelude) {
+  final errors = <css.Message>[];
+  final tree = css.parse('$prelude{}', errors: errors);
+  if (errors.isNotEmpty) {
+    return const [];
+  }
+  return switch (tree.topLevels.singleOrNull) {
+    final css.RuleSet rule => [
+      for (final selector
+          in rule.selectorGroup?.selectors ?? const <css.Selector>[])
+        ?_Selector.of(selector),
+    ],
+    _ => const [],
+  };
+}
 
-  final String _path;
-  final fonts = <String, List<String>>{};
-  var _inFontFace = false;
-  String? _family;
-  String? _file;
-
-  @override
-  void visitFontFaceDirective(css.FontFaceDirective node) {
-    _inFontFace = true;
-    _family = null;
-    _file = null;
-    super.visitFontFaceDirective(node);
-    _inFontFace = false;
-    if ((_family, _file) case (final family?, final file?)) {
-      (fonts[family] ??= []).add(file);
+/// Adds the font file an `@font-face` rule's [declarations] name to [fonts], under its family.
+void _addFontFace(
+  Map<String, List<String>> fonts,
+  List<(String, _Value)> declarations,
+  String path,
+) {
+  String? family;
+  String? file;
+  for (final (property, value) in declarations) {
+    switch (property) {
+      case 'font-family':
+        family = _fontFamily(value.text);
+      case 'src':
+        file = _fontFile(value.text, path);
     }
   }
-
-  @override
-  void visitDeclaration(css.Declaration node) {
-    if (!_inFontFace) {
-      return;
-    }
-    final text = _valueText(node);
-    if (text == null) {
-      return;
-    }
-    switch (node.property.toLowerCase()) {
-      case 'font-family':
-        _family = _fontFamily(text);
-      case 'src':
-        _file = _fontFile(text, _path);
-    }
+  if ((family, file) case (final family?, final file?)) {
+    (fonts[family] ??= []).add(file);
   }
 }
 
@@ -612,31 +704,171 @@ T? _winning<T extends Object>(
   return null;
 }
 
-List<(String, _Value)> _declarations(css.DeclarationGroup group, String base) =>
-    [
-      for (final node in group.declarations)
-        if (node is css.Declaration)
-          if (_valueText(node) case final text?)
-            (node.property.toLowerCase(), _Value(text, base)),
-    ];
+/// A rule's body as `(property, value)`, each value as written: split at each `;` outside
+/// strings and brackets — a `url(data:…)` holds `;` of its own.
+List<(String, _Value)> _declarations(String body, String base) {
+  final declarations = <(String, _Value)>[];
+  void add(String declaration) {
+    final colon = declaration.indexOf(':');
+    if (colon < 0) {
+      return;
+    }
+    final property = declaration.substring(0, colon).trim().toLowerCase();
+    final value = declaration
+        .substring(colon + 1)
+        .replaceFirst(_important, '')
+        .trim();
+    if (property.isNotEmpty && value.isNotEmpty) {
+      declarations.add((property, _Value(value, base)));
+    }
+  }
 
-List<(String, _Value)> _inlineDeclarations(String style, String base) {
-  final tree = css.parse('x{$style}');
-  return switch (tree.topLevels.firstOrNull) {
-    final css.RuleSet rule => _declarations(rule.declarationGroup, base),
-    _ => const [],
-  };
+  var depth = 0;
+  var start = 0;
+  var index = 0;
+  while (index < body.length) {
+    switch (body[index]) {
+      case '"' || "'":
+        index = _afterString(body, index);
+        continue;
+      case r'\':
+        index += 2;
+        continue;
+      case '(' || '[' || '{':
+        depth++;
+      case ')' || ']' || '}':
+        depth = math.max(0, depth - 1);
+      case ';' when depth == 0:
+        add(body.substring(start, index));
+        start = index + 1;
+    }
+    index++;
+  }
+  if (start < body.length) {
+    add(body.substring(start));
+  }
+  return declarations;
 }
 
-/// The value as the stylesheet writes it. csslib's own value nodes cut it short — `42.00` for
-/// `42.00px` — while the declaration's source text holds all of it.
-String? _valueText(css.Declaration declaration) {
-  final source = declaration.span.text;
-  final colon = source.indexOf(':');
-  if (colon < 0) {
-    return null;
+List<(String, _Value)> _inlineDeclarations(String style, String base) =>
+    _declarations(_withoutComments(style), base);
+
+/// A stylesheet's top-level rules as `(prelude, body)`: a rule's selectors, or an at-rule's name
+/// and terms, and what its braces hold — null for an at-rule a `;` ends. A block left open runs
+/// to the end of the text, as CSS reads it.
+Iterable<(String, String?)> _blocks(String text) sync* {
+  var start = 0;
+  var index = 0;
+  while (index < text.length) {
+    // HTML's comment marks, which an old stylesheet wraps itself in, count for nothing between
+    // rules.
+    if (text.startsWith('<!--', index) || text.startsWith('-->', index)) {
+      if (text.substring(start, index).trim().isEmpty) {
+        index += text[index] == '<' ? 4 : 3;
+        start = index;
+        continue;
+      }
+    }
+    switch (text[index]) {
+      case '"' || "'":
+        index = _afterString(text, index);
+        continue;
+      case r'\':
+        index += 2;
+        continue;
+      case '{':
+        final end = _closingBrace(text, index);
+        yield (
+          text.substring(start, index).trim(),
+          text.substring(index + 1, math.min(end, text.length)),
+        );
+        index = end + 1;
+        start = index;
+        continue;
+      case ';' when text.substring(start, index).trimLeft().startsWith('@'):
+        yield (text.substring(start, index).trim(), null);
+        start = index + 1;
+      case '}':
+        start = index + 1;
+    }
+    index++;
   }
-  return source.substring(colon + 1).replaceFirst(_important, '').trim();
+}
+
+/// Where the `}` that closes the `{` at [open] is; the end of [text] when none does.
+int _closingBrace(String text, int open) {
+  var depth = 0;
+  var index = open;
+  while (index < text.length) {
+    switch (text[index]) {
+      case '"' || "'":
+        index = _afterString(text, index);
+        continue;
+      case r'\':
+        index += 2;
+        continue;
+      case '{':
+        depth++;
+      case '}':
+        depth--;
+        if (depth == 0) {
+          return index;
+        }
+    }
+    index++;
+  }
+  return text.length;
+}
+
+/// Where the string that opens at [open] ends: after its closing quote, or at the line break or
+/// the end of [text] that cuts it short.
+int _afterString(String text, int open) {
+  final quote = text[open];
+  var index = open + 1;
+  while (index < text.length) {
+    final char = text[index];
+    if (char == r'\') {
+      index += 2;
+    } else if (char == quote) {
+      return index + 1;
+    } else if (char == '\n') {
+      return index;
+    } else {
+      index++;
+    }
+  }
+  return text.length;
+}
+
+/// [text] with each comment a space, as CSS reads it.
+String _withoutComments(String text) {
+  if (!text.contains('/*')) {
+    return text;
+  }
+  final result = StringBuffer();
+  var start = 0;
+  var index = 0;
+  while (index < text.length) {
+    switch (text[index]) {
+      case '"' || "'":
+        index = _afterString(text, index);
+        continue;
+      case r'\':
+        index += 2;
+        continue;
+      case '/' when text.startsWith('/*', index):
+        final end = text.indexOf('*/', index + 2);
+        result
+          ..write(text.substring(start, index))
+          ..write(' ');
+        index = end < 0 ? text.length : end + 2;
+        start = index;
+        continue;
+    }
+    index++;
+  }
+  result.write(text.substring(math.min(start, text.length)));
+  return result.toString();
 }
 
 /// A length in CSS pixels: `px`, `em` of [em], `%` of [percentOf]; null for any other unit.
@@ -717,21 +949,113 @@ Color? _color(String text) {
   return null;
 }
 
-/// `rotate(…)` in `deg`, `rad` or `turn`, as radians; `none` is no turn.
-double? _rotation(String text) {
+/// A `transform`: `matrix()`, `scale()` and `rotate()`, one after the other as CSS lists them;
+/// `none` is no change. Null when it holds anything else, which drops the whole declaration.
+LineTransform? _transform(String text) {
   if (text.toLowerCase() == 'none') {
-    return 0;
+    return LineTransform.identity;
   }
-  final match = _rotate.firstMatch(text);
+  var transform = LineTransform.identity;
+  var end = 0;
+  for (final match in _transformFunction.allMatches(text)) {
+    if (text.substring(end, match.start).trim().isNotEmpty) {
+      return null;
+    }
+    end = match.end;
+    final arguments = match[2]!.trim().split(_argumentSeparator);
+    final step = _transformStep(match[1]!.toLowerCase(), arguments);
+    if (step == null) {
+      return null;
+    }
+    transform = transform * step;
+  }
+  return end == 0 || text.substring(end).trim().isNotEmpty ? null : transform;
+}
+
+LineTransform? _transformStep(String name, List<String> arguments) {
+  if (name == 'rotate') {
+    return switch (arguments) {
+      [final angle] => switch (_angle(angle)) {
+        final radians? => LineTransform.rotation(radians),
+        null => null,
+      },
+      _ => null,
+    };
+  }
+  final numbers = [for (final argument in arguments) _plainNumber(argument)];
+  return switch ((name, numbers)) {
+    ('matrix', [final a?, final b?, final c?, final d?, final e?, final f?]) =>
+      LineTransform(a, b, c, d, e, f),
+    ('scale', [final both?]) => LineTransform(both, 0, 0, both, 0, 0),
+    ('scale', [final x?, final y?]) => LineTransform(x, 0, 0, y, 0, 0),
+    _ => null,
+  };
+}
+
+/// An angle in `deg`, `rad` or `turn`, as radians clockwise; CSS lets a zero go without a unit.
+double? _angle(String text) {
+  final match = _anglePattern.firstMatch(text);
   if (match == null) {
     return null;
   }
-  final angle = double.parse(match[1]!);
-  return switch (match[2]!.toLowerCase()) {
-    'deg' => angle * math.pi / 180,
-    'rad' => angle,
-    _ => angle * 2 * math.pi,
+  final value = double.parse(match[1]!);
+  return switch (match[2]?.toLowerCase()) {
+    'deg' => value * math.pi / 180,
+    'rad' => value,
+    'turn' => value * 2 * math.pi,
+    _ => value == 0 ? 0 : null,
   };
+}
+
+double? _plainNumber(String text) =>
+    _plainNumberPattern.hasMatch(text) ? double.parse(text) : null;
+
+/// A `transform-origin` of keywords, percentages and lengths; a third value, the depth, has no
+/// part in a flat page.
+LineOrigin? _origin(String text, double em) {
+  var words = _words(text.toLowerCase());
+  if (words.length == 3) {
+    words = words.sublist(0, 2);
+  }
+  if (words.length == 1) {
+    words = words.single == 'top' || words.single == 'bottom'
+        ? ['center', words.single]
+        : [words.single, 'center'];
+  }
+  if (words case [final first, final second]) {
+    final (x, y) =
+        first == 'top' ||
+            first == 'bottom' ||
+            second == 'left' ||
+            second == 'right'
+        ? (second, first)
+        : (first, second);
+    if ((
+          _originAxis(x, 'left', 'right', em),
+          _originAxis(y, 'top', 'bottom', em),
+        )
+        case ((final alignX, final dx)?, (final alignY, final dy)?)) {
+      return LineOrigin(Alignment(alignX, alignY), Offset(dx, dy));
+    }
+  }
+  return null;
+}
+
+/// One axis of a `transform-origin`: a keyword or percentage as an alignment, a length as a
+/// distance from the box's [start] edge.
+(double, double)? _originAxis(
+  String word,
+  String start,
+  String end,
+  double em,
+) {
+  if (_axis(word, start, end) case final alignment?) {
+    return (alignment, 0);
+  }
+  if (_length(word, em: em) case final length?) {
+    return (-1, length);
+  }
+  return null;
 }
 
 /// A `background-image`: a picture in the book, or a null [path] for `none` and for any
@@ -844,8 +1168,11 @@ final _hexColor = RegExp(r'^#([0-9a-f]{3}|[0-9a-f]{6})$');
 final _rgbColor = RegExp(
   r'^rgb\(\s*(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})\s*\)$',
 );
-final _rotate = RegExp(
-  '^rotate\\(\\s*($_number)(deg|rad|turn)\\s*\\)\$',
+final _transformFunction = RegExp(r'([a-zA-Z]+)\(([^)]*)\)');
+final _argumentSeparator = RegExp(r'\s*,\s*|\s+');
+final _plainNumberPattern = RegExp('^$_number\$');
+final _anglePattern = RegExp(
+  '^($_number)(deg|rad|turn)?\$',
   caseSensitive: false,
 );
 final _url = RegExp(
@@ -854,5 +1181,6 @@ final _url = RegExp(
 );
 final _firstFamily = RegExp(r'''^\s*(?:"([^"]*)"|'([^']*)'|([^,]+))''');
 final _important = RegExp(r'\s*!\s*important\s*$', caseSensitive: false);
+final _atRuleName = RegExp(r'^@([-\w]+)');
 // HTML's white space; a no-break space is text.
 final _whiteSpace = RegExp(r'[ \t\n\r\f]+');

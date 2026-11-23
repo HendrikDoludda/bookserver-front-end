@@ -216,10 +216,14 @@ class _FixedLayoutPageState extends State<FixedLayoutPage> {
                 for (final line in page.lines)
                   Positioned(
                     left: line.position.dx,
-                    top: line.position.dy,
-                    child: Transform.rotate(
-                      angle: line.rotation,
-                      alignment: Alignment.topLeft,
+                    top: line.placedByBottom ? null : line.position.dy,
+                    bottom: line.placedByBottom
+                        ? page.size.height - line.position.dy
+                        : null,
+                    child: Transform(
+                      transform: _matrix(line.transform),
+                      alignment: line.origin.alignment,
+                      origin: line.origin.offset,
                       child: Text.rich(
                         TextSpan(
                           children: [
@@ -285,3 +289,12 @@ class _FixedLayoutPageState extends State<FixedLayoutPage> {
 // A page that gives no colour of its own is white, as a browser shows it: its text was set on
 // paper, not on the app's theme.
 const _paper = Color(0xFFFFFFFF);
+
+/// [transform] as the 4×4 matrix Flutter draws with.
+Matrix4 _matrix(LineTransform transform) => Matrix4.identity()
+  ..setEntry(0, 0, transform.a)
+  ..setEntry(1, 0, transform.b)
+  ..setEntry(0, 1, transform.c)
+  ..setEntry(1, 1, transform.d)
+  ..setEntry(0, 3, transform.e)
+  ..setEntry(1, 3, transform.f);

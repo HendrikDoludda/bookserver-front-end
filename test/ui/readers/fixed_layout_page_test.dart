@@ -205,6 +205,33 @@ span.b { font-family: Helvetica; font-size: 10px; text-decoration: underline; }'
     expect(loads, [('book7-Gotham Book', 1)]);
   });
 
+  testWidgets('a line placed by its bottom keeps its bottom edge there', (
+    tester,
+  ) async {
+    await show(
+      tester,
+      FixedLayoutBook(
+        open([
+          '<div style="left:100px;bottom:100px;font-size:40px;line-height:60px">low</div>',
+        ]),
+        7,
+        loadFont: countLoads,
+      ),
+    );
+
+    final page = pageRect(tester);
+    final scale = page.width / 1000;
+    expect(
+      tester.getBottomLeft(text('low')),
+      offsetMoreOrLessEquals(page.topLeft + const Offset(100, 1400) * scale),
+    );
+    expect(
+      tester.getBottomLeft(text('low')).dy - tester.getTopLeft(text('low')).dy,
+      moreOrLessEquals(60 * scale),
+      reason: 'its top follows from its height',
+    );
+  });
+
   testWidgets('a rotated line turns around its top left', (tester) async {
     await show(
       tester,
@@ -231,6 +258,69 @@ span.b { font-family: Helvetica; font-size: 10px; text-decoration: underline; }'
       line.localToGlobal(const Offset(10, 0)) - corner,
       offsetMoreOrLessEquals(Offset(0, 10 * scale)),
       reason: 'the text runs downwards',
+    );
+  });
+
+  testWidgets('a line set large and scaled down keeps its origin in place', (
+    tester,
+  ) async {
+    await show(
+      tester,
+      FixedLayoutBook(
+        open(
+          ['<div class="t" style="left:100px;bottom:100px">small print</div>'],
+          css:
+              '.t { font-size: 40px; line-height: 60px; transform: scale(0.25); '
+              'transform-origin: bottom left; }',
+        ),
+        7,
+        loadFont: countLoads,
+      ),
+    );
+
+    final page = pageRect(tester);
+    final scale = page.width / 1000;
+    final line = text('small print');
+    final unscaled = tester.getSize(line);
+    expect(
+      tester.getBottomLeft(line),
+      offsetMoreOrLessEquals(page.topLeft + const Offset(100, 1400) * scale),
+    );
+    expect(
+      tester.getTopRight(line),
+      offsetMoreOrLessEquals(
+        tester.getBottomLeft(line) +
+            Offset(unscaled.width, -unscaled.height) * 0.25 * scale,
+      ),
+      reason: 'a quarter of its size on the page',
+    );
+  });
+
+  testWidgets('a line that names no origin turns around its middle', (
+    tester,
+  ) async {
+    await show(
+      tester,
+      FixedLayoutBook(
+        open([
+          '<div style="left:100px;top:200px;transform:rotate(180deg)">upside down</div>',
+        ]),
+        7,
+        loadFont: countLoads,
+      ),
+    );
+
+    final page = pageRect(tester);
+    final scale = page.width / 1000;
+    final line = text('upside down');
+    final size = tester.getSize(line);
+    expect(
+      tester.getTopLeft(line),
+      offsetMoreOrLessEquals(
+        page.topLeft +
+            (const Offset(100, 200) + size.bottomRight(Offset.zero)) * scale,
+      ),
+      reason: 'its top left turns onto where its bottom right was',
     );
   });
 

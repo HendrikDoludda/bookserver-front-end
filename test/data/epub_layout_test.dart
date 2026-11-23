@@ -49,6 +49,20 @@ void main() {
 
   RunStyle styleOf(FixedPage page) => page.lines.single.runs.single.style;
 
+  /// A transform whose `a`–`f` are [expected], each within rounding.
+  Matcher isTransform(List<double> expected) => isA<LineTransform>().having(
+    (transform) => [
+      transform.a,
+      transform.b,
+      transform.c,
+      transform.d,
+      transform.e,
+      transform.f,
+    ],
+    'a–f',
+    [for (final value in expected) closeTo(value, 1e-12)],
+  );
+
   test(
     'rules apply by specificity, then in order, the style attribute last',
     () {
@@ -229,6 +243,105 @@ psan.para { color: #ff0000; }
     }
   });
 
+  test('a value it cannot parse costs only its declaration, not the rest of the stylesheet', () {
+    final fixed = page(
+      '<div id="page"></div><div class="x" style="left:0;top:0">x</div>',
+      css: '''
+#page { background-image: url(a.png); background-size:auto100%; background-position: center; }
+div.x { color: #00ff00; }''',
+    );
+
+    expect(fixed.background.image, 'OEBPS/a.png');
+    expect(fixed.background.fit, BoxFit.none);
+    expect(
+      fixed.background.alignment,
+      Alignment.center,
+      reason: 'the declaration after it',
+    );
+    expect(
+      styleOf(fixed).color,
+      const Color(0xFF00FF00),
+      reason: 'the rule after it',
+    );
+  });
+
+  test(
+    'a style attribute keeps the declarations around one it cannot parse',
+    () {
+      final line = page(
+        '<div style="left:5px;background-size:auto100%;top:7px;color:#00ff00">t</div>',
+      ).lines.single;
+
+      expect(line.position, const Offset(5, 7));
+      expect(line.runs.single.style.color, const Color(0xFF00FF00));
+    },
+  );
+
+  test('strings, brackets and comments split nothing; a } in a string closes nothing', () {
+    final fixed = page(
+      '''
+<div id="page"></div>
+<div class="x" style="left:0;top:0">x</div>
+<div class="y" style="left:0;top:10px;/* top:99px; */">y</div>''',
+      css: r'''
+/* div.x { color: #ff0000; } */
+div.x { content: "}"; color: #0000ff; }
+div.y { font-family: "Odd; Name}", serif; color: /* not here; */ #00ff00; }
+div.y { content: "a \" ; b"; font-size: 20px; }
+#page { background-image: url(img/a;b.png); }''',
+    );
+
+    final [x, y] = fixed.lines;
+    expect(x.runs.single.style.color, const Color(0xFF0000FF));
+    final yStyle = y.runs.single.style;
+    expect(yStyle.fontFamily, 'Odd; Name}');
+    expect(yStyle.color, const Color(0xFF00FF00));
+    expect(yStyle.fontSize, 20, reason: 'an escaped quote ends no string');
+    expect(y.position, const Offset(0, 10));
+    expect(fixed.background.image, 'OEBPS/img/a;b.png');
+  });
+
+  test('at-rules are skipped whole, nested or ended by ; and HTML comment marks count for nothing', () {
+    final line = page(
+      '<div class="x" style="left:0;top:0">x</div>',
+      css: '''
+@charset "utf-8";
+@import url("other.css");
+<!--
+@media print { div.x { color: #ff0000; } div.x { font-size: 99px; } }
+div.x { color: #00ff00; }
+-->
+@page { margin: 0; }
+div.x { font-size: 20px; }''',
+    ).lines.single;
+
+    expect(line.runs.single.style.color, const Color(0xFF00FF00));
+    expect(line.runs.single.style.fontSize, 20);
+  });
+
+  test('a selector it cannot read drops its rule, and only that one', () {
+    final line = page(
+      '<div class="x" style="left:0;top:0">x</div>',
+      css: '''
+div.x, 1bad { color: #ff0000; }
+div.x { font-size: 20px; }
+div.x { letter-spacing: 2px;''',
+    ).lines.single;
+
+    final style = line.runs.single.style;
+    expect(
+      style.color,
+      const Color(0xFF000000),
+      reason: 'as in a browser, its good selector goes with it',
+    );
+    expect(style.fontSize, 20);
+    expect(
+      style.letterSpacing,
+      2,
+      reason: 'a block left open runs to the end of the stylesheet',
+    );
+  });
+
   test("finds the font files the page's stylesheets declare", () {
     final styles = open(
       {
@@ -390,7 +503,8 @@ body { background-color: #FFFFFF; }
     final [kale, side, whole, outside, collapsed, nested] = lines;
 
     expect(kale.position, const Offset(10.5, 20));
-    expect(kale.rotation, 0);
+    expect(kale.placedByBottom, isFalse);
+    expect(kale.transform, isTransform([1, 0, 0, 1, 0, 0]));
     expect(links(kale), [
       ('Kale, ', null),
       ('11', 2),
@@ -399,7 +513,8 @@ body { background-color: #FFFFFF; }
     ]);
 
     expect(side.position, const Offset(990, 400));
-    expect(side.rotation, closeTo(-math.pi / 2, 1e-12));
+    expect(side.transform, isTransform([0, -1, 1, 0, 0, 0]));
+    expect(side.origin.alignment, Alignment.topLeft);
     expect(texts(side), ['47', ' Breakfast']);
 
     expect(whole.position, const Offset(10, 80));
@@ -417,6 +532,47 @@ body { background-color: #FFFFFF; }
     );
   });
 
+  test('a line placed by bottom sits above the bottom of the nearest box that gives its height, '
+      "else the page's", () {
+    final fixed = page(
+      '''
+<div style="left:10px;bottom:100px">page</div>
+<div style="left:10px;bottom:10%">page percent</div>
+<div style="left:10px;top:20px;bottom:100px">both</div>
+<div style="left:100px;top:200px;height:300px">
+  <div style="left:5px;bottom:50px">boxed</div>
+  <div style="left:5px;bottom:10%">boxed percent</div>
+</div>
+<div style="left:100px;top:200px"><div style="left:5px;bottom:50px">heightless box</div></div>
+<div style="left:0;bottom:100px;height:400px">
+  <div style="left:5px;top:10px">under the top of a box placed by bottom</div>
+  <div style="left:5px;bottom:10px">above its bottom</div>
+</div>
+<div style="left:0;bottom:100px"><div style="left:5px;top:10px">in a heightless box placed by bottom</div></div>''',
+    );
+
+    expect(
+      {
+        for (final line in fixed.lines)
+          texts(line).join(): (line.position, line.placedByBottom),
+      },
+      {
+        'page': (const Offset(10, 1400), true),
+        'page percent': (const Offset(10, 1350), true),
+        'both': (const Offset(10, 20), false),
+        'boxed': (const Offset(105, 450), true),
+        'boxed percent': (const Offset(105, 470), true),
+        'heightless box': (const Offset(105, 1450), true),
+        'under the top of a box placed by bottom': (
+          const Offset(5, 1010),
+          false,
+        ),
+        'above its bottom': (const Offset(5, 1390), true),
+        'in a heightless box placed by bottom': (const Offset(5, 1410), false),
+      },
+    );
+  });
+
   test('an empty element closed with /> holds nothing', () {
     final fixed = page(
       '<div style="left:100px;top:100px"/><div style="left:10px;top:10px">after</div>',
@@ -426,23 +582,177 @@ body { background-color: #FFFFFF; }
   });
 
   test('turns lines by rotate() in deg, rad and turn', () {
-    final fixed = page('''
+    final fixed = page(
+      '''
 <div style="left:0;top:0;transform:rotate(90deg)">deg</div>
 <div style="left:0;top:0;transform:rotate(1.5rad)">rad</div>
 <div style="left:0;top:0;transform:rotate(0.5turn)">turn</div>
 <div style="left:0;top:0;transform:rotate(45deg);transform:skew(10deg)">skew</div>
-<div style="left:0;top:0;transform:rotate(45deg);transform:none">none</div>''');
+<div style="left:0;top:0;transform:rotate(45deg);transform:none">none</div>
+<div style="left:0;top:0;transform:rotate(45deg);transform:rotate(0)">zero</div>
+<div style="left:0;top:0;transform:rotate(45deg);transform:rotate(90)">no unit</div>''',
+    );
+
+    final half = math.sqrt1_2;
+    final [deg, rad, turn, skew, none, zero, noUnit] = fixed.lines;
+    expect(deg.transform, isTransform([0, 1, -1, 0, 0, 0]));
+    expect(
+      rad.transform,
+      isTransform([
+        math.cos(1.5),
+        math.sin(1.5),
+        -math.sin(1.5),
+        math.cos(1.5),
+        0,
+        0,
+      ]),
+    );
+    expect(turn.transform, isTransform([-1, 0, 0, -1, 0, 0]));
+    expect(
+      skew.transform,
+      isTransform([half, half, -half, half, 0, 0]),
+      reason: 'a function it cannot apply drops the declaration',
+    );
+    expect(none.transform, isTransform([1, 0, 0, 1, 0, 0]));
+    expect(zero.transform, isTransform([1, 0, 0, 1, 0, 0]));
+    expect(
+      noUnit.transform,
+      isTransform([half, half, -half, half, 0, 0]),
+      reason: 'only a zero may go without a unit',
+    );
+  });
+
+  test(
+    'transforms lines by scale(), matrix() and lists of them, the last first',
+    () {
+      final fixed = page(
+        '''
+<div style="left:0;top:0;transform:scale(0.25)">one value</div>
+<div style="left:0;top:0;transform:scale(0.255, 0.25)">two values</div>
+<div style="left:0;top:0;transform:matrix(0,-1,1,0,0, 0)">turned</div>
+<div style="left:0;top:0;transform:matrix(1 0 0 1 10 20)">moved</div>
+<div style="left:0;top:0;transform:matrix(1,0,0,1,10,0) scale(2)">scaled, then moved</div>
+<div style="left:0;top:0;transform:scale(2) matrix(1,0,0,1,10,0)">moved, then scaled</div>
+<div style="left:0;top:0;transform:SCALE(2) Rotate(90deg)">any case</div>
+<div style="left:0;top:0;transform:scale(0.5);transform:scale(2) skew(10deg)">a function it cannot apply</div>
+<div style="left:0;top:0;transform:scale(0.5);transform:scale(1, 2, 3)">three values</div>
+<div style="left:0;top:0;transform:scale(0.5);transform:matrix(1,0,0,1,0)">five values</div>
+<div style="left:0;top:0;transform:scale(0.5);transform:scale()">none</div>
+<div style="left:0;top:0;transform:scale(0.5);transform:scale(2) junk">junk after</div>
+<div style="left:0;top:0;transform:scale(0.5);transform:junk scale(2)">junk before</div>''',
+      );
+
+      expect(
+        {for (final line in fixed.lines) texts(line).join(): line.transform},
+        {
+          'one value': isTransform([0.25, 0, 0, 0.25, 0, 0]),
+          'two values': isTransform([0.255, 0, 0, 0.25, 0, 0]),
+          'turned': isTransform([0, -1, 1, 0, 0, 0]),
+          'moved': isTransform([1, 0, 0, 1, 10, 20]),
+          'scaled, then moved': isTransform([2, 0, 0, 2, 10, 0]),
+          'moved, then scaled': isTransform([2, 0, 0, 2, 20, 0]),
+          'any case': isTransform([0, 2, -2, 0, 0, 0]),
+          for (final dropped in [
+            'a function it cannot apply',
+            'three values',
+            'five values',
+            'none',
+            'junk after',
+            'junk before',
+          ])
+            dropped: isTransform([0.5, 0, 0, 0.5, 0, 0]),
+        },
+      );
+    },
+  );
+
+  test('transforms a line around its transform-origin, its middle when it names none', () {
+    final fixed = page(
+      '''
+<div style="left:0;top:0">unnamed</div>
+<div style="left:0;top:0;transform-origin:bottom left">bottom left</div>
+<div style="left:0;top:0;transform-origin:left bottom">left bottom</div>
+<div style="left:0;top:0;transform-origin:top">top</div>
+<div style="left:0;top:0;transform-origin:25% 75%">percentages</div>
+<div style="left:0;top:0;transform-origin:0 0">zeros</div>
+<div style="left:0;top:0;font-size:10px;transform-origin:10px 2em">lengths</div>
+<div style="left:0;top:0;transform-origin:right 10px 5px">depth</div>
+<div style="left:0;top:0;transform-origin:left top;transform-origin:sideways">unreadable</div>''',
+    );
 
     expect(
-      [for (final line in fixed.lines) line.rotation],
-      [
-        closeTo(math.pi / 2, 1e-12),
-        1.5,
-        closeTo(math.pi, 1e-12),
-        closeTo(math.pi / 4, 1e-12),
-        0,
-      ],
+      {
+        for (final line in fixed.lines)
+          texts(line).join(): (line.origin.alignment, line.origin.offset),
+      },
+      {
+        'unnamed': (Alignment.center, Offset.zero),
+        'bottom left': (Alignment.bottomLeft, Offset.zero),
+        'left bottom': (Alignment.bottomLeft, Offset.zero),
+        'top': (Alignment.topCenter, Offset.zero),
+        'percentages': (const Alignment(-0.5, 0.5), Offset.zero),
+        'zeros': (Alignment.topLeft, Offset.zero),
+        'lengths': (Alignment.topLeft, const Offset(10, 20)),
+        'depth': (Alignment.topRight, const Offset(0, 10)),
+        'unreadable': (Alignment.topLeft, Offset.zero),
+      },
     );
+  });
+
+  test('a page as a PDF converter writes it: its picture behind, lines placed by bottom, set large and scaled down', () {
+    final fixed = page(
+      '''
+<div id="page008" style="position:absolute;left:0px;top:0px;width:1000px;height:1500px;">
+<div id="t1_8" class="t s1_8">The weather in</div>
+<div id="t2_8" class="t s1_8">the heart of winter</div>
+<div id="tv_8" class="t s1_8">47 Breakfast</div>
+</div>''',
+      css: '''
+body {background-color:#FFFFFF;position:absolute;top:0px;left:0px;margin:0px;width:1000 px;height:1500 px;}
+#cover {background-image:url("cover.jpg");background-size:auto100%;background-repeat:no-repeat;background-position:center;position:absolute;width:1000 px;height:1500 px;}
+#page008 {background-image:url("page008.jpg");background-size:auto100%;background-repeat:no-repeat;background-position:center;position:absolute;width:1000 px;height:1500 px;}
+.t {
+	-webkit-transform-origin: bottom left;
+	transform-origin: bottom left;
+	-webkit-transform: scale(0.25);
+	transform: scale(0.25);
+	z-index: 2;
+	position: absolute;
+	white-space: pre;
+}
+#t1_8{left:190px;bottom:1401px;letter-spacing:1.1px;word-spacing:-0.1px;}
+#t2_8{left:190px;bottom:1361px;}
+#tv_8{left:60px;bottom:400px;transform: matrix(0,-1,1,0,0, 0);}
+.s1_8{
+	FONT-SIZE: 101.3px;
+	FONT-FAMILY: Palatino-Italic__j;
+	color: rgb(35,31,32);
+}''',
+    );
+
+    expect(fixed.background.image, 'OEBPS/page008.jpg');
+    expect(fixed.background.alignment, Alignment.center);
+    expect(fixed.background.color, const Color(0xFFFFFFFF));
+
+    final [weather, winter, side] = fixed.lines;
+    expect(texts(weather), ['The weather in']);
+    expect(weather.position, const Offset(190, 99));
+    expect(weather.placedByBottom, isTrue);
+    expect(weather.transform, isTransform([0.25, 0, 0, 0.25, 0, 0]));
+    expect(weather.origin.alignment, Alignment.bottomLeft);
+    expect(weather.style.fontSize, 101.3);
+    expect(weather.style.fontFamily, 'Palatino-Italic__j');
+    expect(weather.style.color, const Color(0xFF231F20));
+
+    expect(winter.position, const Offset(190, 139));
+
+    expect(side.position, const Offset(60, 1100));
+    expect(
+      side.transform,
+      isTransform([0, -1, 1, 0, 0, 0]),
+      reason: "an id's transform outweighs the class's",
+    );
+    expect(side.origin.alignment, Alignment.bottomLeft);
   });
 
   test('the size comes from the viewport, else from the page box', () {
