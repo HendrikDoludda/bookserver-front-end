@@ -1,0 +1,92 @@
+name: Desktop builds
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two runs at once would both replace the same release.
+concurrency:
+  group: desktop-builds
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-flutter
+      - run: flutter build macos --release
+      # One zip serves Apple Silicon and Intel Macs only if the app holds both.
+      - run: lipo build/macos/Build/Products/Release/bookserver.app/Contents/MacOS/bookserver -verify_arch arm64 x86_64
+      # ditto keeps the app's symlinks and signature intact; zip would break them.
+      - run: ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/bookserver.app build/bookserver-macos.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: build/bookserver-macos.zip
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-flutter
+      - run: flutter build windows --release
+      # The app links the Visual C++ runtime dynamically; shipping it saves installing the Redistributable.
+      - shell: pwsh
+        run: |
+          $release = 'build\windows\x64\runner\Release'
+          $runtime = 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'
+          $runtime | ForEach-Object { Copy-Item (Join-Path $env:SystemRoot System32 $_) $release }
+          Compress-Archive -Path "$release\*" -DestinationPath build\bookserver-windows-x64.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: build/bookserver-windows-x64.zip
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: docker build -f docker/linux.Dockerfile --output build/bookserver .
+      - run: tar -czf build/bookserver-linux-x64.tar.gz -C build bookserver
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: build/bookserver-linux-x64.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: [test, macos, windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      # Same tag every time, so the README's download links never change.
+      - run: |
+          if gh release view desktop-builds > /dev/null 2>&1; then
+            gh release delete desktop-builds --cleanup-tag --yes
+          fi
+          gh release create desktop-builds dist/* \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Desktop builds" \
+            --notes "Built from $GITHUB_SHA. How to start them: https://github.com/$GITHUB_REPOSITORY#download"

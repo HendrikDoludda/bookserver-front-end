@@ -9,7 +9,7 @@
 | `clone` | `git clone PASTE_REPOSITORY_URL bookserver-front-end` |
 | `build-windows` | `flutter build windows --release` |
 | `run-windows` | `.\build\windows\x64\runner\Release\bookserver.exe` |
-| `zip-windows` | `Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath bookserver-windows.zip` |
+| `zip-windows` | `Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\bookserver-windows.zip` |
 
 The commands run in PowerShell, on the Windows PC.
 

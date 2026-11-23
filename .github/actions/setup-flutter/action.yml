@@ -1,0 +1,20 @@
+name: Set up Flutter
+description: Installs the Flutter SDK the app is built with and puts it on the PATH.
+
+runs:
+  using: composite
+  steps:
+    # PowerShell runs on every runner, so Ubuntu, macOS and Windows share these lines.
+    - shell: pwsh
+      run: |
+        # Without it, a failing git or flutter doesn't stop a PowerShell step.
+        $PSNativeCommandUseErrorActionPreference = $true
+        # The same Flutter as docker/linux.Dockerfile and the Stack line in CLAUDE.md.
+        $sdk = Join-Path $env:RUNNER_TEMP flutter
+        git clone --depth 1 --branch 3.50.0 https://github.com/flutter/flutter.git $sdk
+        Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $sdk bin)
+    - shell: pwsh
+      run: |
+        $PSNativeCommandUseErrorActionPreference = $true
+        flutter config --no-analytics --no-cli-animations
+        flutter --version

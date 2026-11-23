@@ -98,7 +98,10 @@
 - An Android release build is signed with the release key `android/key.properties` names; the file and the keystore stay outside git, and without the file a release build stops. One universal APK, for every phone.
 - Each platform's release build and how it reaches a device is in its run doc: [android](run-deploy/android.md), [ios](run-deploy/ios.md), [macos](run-deploy/macos.md), [windows](run-deploy/windows.md), [linux](run-deploy/linux.md).
 - iOS builds sign with the developer's free personal Apple team that the project names, and only on a Mac whose Xcode has that account; macOS builds sign ad hoc until 73's signing tasks.
-- Windows builds on a Windows PC. Linux builds in Docker (`docker/linux.Dockerfile`), on any machine, and only the bundle leaves the container; its ignore file keeps the Mac's build output and every signing secret out of the image.
+- Windows builds on a Windows PC. Linux builds in Docker on Ubuntu 22.04 (`docker/linux.Dockerfile`), on any machine, and only the bundle leaves the container; its ignore file keeps the Mac's build output and every signing secret out of the image.
+- CI (`.github/workflows/ci.yml`) checks the formatting, the analysis and the tests on every push to `main` and every pull request.
+- The macOS, Windows and Linux downloads come from `.github/workflows/desktop.yml`, started by hand: it runs CI, builds on GitHub's runners and replaces the files of the `desktop-builds` pre-release only when everything passed ([github](run-deploy/github.md)).
+- CI installs Flutter through `.github/actions/setup-flutter`, at the Dockerfile's version and the Stack line's.
 
 ## Tests
 - `test/` mirrors `lib/`: `lib/i18n/catalog.dart` is tested in `test/i18n/catalog_test.dart`; shared fakes live in `test/support/`.

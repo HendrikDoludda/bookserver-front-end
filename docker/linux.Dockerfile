@@ -1,5 +1,6 @@
 # The Linux release build, on any machine with Docker — docs/run-deploy/linux.md.
-FROM ubuntu:24.04 AS build
+# The oldest Ubuntu still supported: a Linux binary needs a glibc at least as new as the one it was built with.
+FROM ubuntu:22.04 AS build
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
