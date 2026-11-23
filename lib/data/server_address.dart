@@ -14,15 +14,20 @@ class AddressException implements Exception {
 // gets its own check.
 final _hostCharacters = RegExp(r'^[a-z0-9._:-]+$');
 
+// Traffic to these never leaves the device, so plain HTTP can't be read or changed on the way.
+// Exact names only: `localhost.example.com` is someone else's server.
+const _thisDevice = {'localhost', '127.0.0.1', '::1'};
+
 /// The server's origin (scheme, host and port) from what someone typed. Without a scheme the
-/// address counts as `https://`; `http://` passes only when [allowHttp] is true.
+/// address counts as `https://`; `http://` passes when [allowHttp] is true, and otherwise only to
+/// this device itself: `localhost`, `127.0.0.1` or `::1`.
 Uri parseServerAddress(String typed, {required bool allowHttp}) {
   final text = typed.trim();
   final uri = Uri.tryParse(text.contains('://') ? text : 'https://$text');
   if (uri == null || !_isOrigin(uri)) {
     throw const AddressException(AddressProblem.invalid);
   }
-  if (uri.scheme == 'http' && !allowHttp) {
+  if (uri.scheme == 'http' && !allowHttp && !_thisDevice.contains(uri.host)) {
     throw const AddressException(AddressProblem.insecure);
   }
   return Uri(

@@ -20,5 +20,5 @@ The commands run in PowerShell, on the Windows PC.
 4. Check that "Windows Version" and "Visual Studio" show ✓ — [`doctor`](#commands). Android and Chrome may show ✗; this build doesn't need them.
 5. Get the app — [`clone`](#commands), with the frontend repository's address from GitHub — and `cd bookserver-front-end`.
 6. Build — [`build-windows`](#commands). The app is the folder `build\windows\x64\runner\Release`: `bookserver.exe`, its DLLs and its `data` folder, which stay together.
-7. Start it — [`run-windows`](#commands). A release build takes only the server's `https://` address: connect it to your `tailscale serve` address ([tailscale.md](../../../bookserver_backend/docs/run-deploy/tailscale.md)), with Tailscale on the PC.
+7. Start it — [`run-windows`](#commands). Connect it to `http://localhost:8080` when the server runs on the PC; any other server needs its `https://` address: your `tailscale serve` address ([tailscale.md](../../../bookserver_backend/docs/run-deploy/tailscale.md)), with Tailscale on the PC.
 8. For another PC, zip the folder — [`zip-windows`](#commands). That PC may also need Microsoft's Visual C++ Redistributable (x64).

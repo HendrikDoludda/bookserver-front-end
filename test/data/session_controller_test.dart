@@ -113,13 +113,13 @@ void main() {
     });
 
     group('checks the stored server as it would a typed one', () {
-      final local = Uri.parse('http://localhost:8080');
+      final lan = Uri.parse('http://192.168.1.20:8080');
 
       test(
-        'a release build drops an http:// record and sends nothing there',
+        'a release build drops a LAN http:// record and sends nothing there',
         () async {
           store.connection = StoredConnection(
-            server: local,
+            server: lan,
             deviceId: _deviceId,
             tokens: SessionTokens(
               sessionToken: 'session-1',
@@ -144,22 +144,23 @@ void main() {
       );
 
       test('a debug build keeps an http:// record', () async {
-        store.connection = StoredConnection(server: local, deviceId: _deviceId);
+        store.connection = StoredConnection(server: lan, deviceId: _deviceId);
         final session = controller(allowHttp: true);
 
         await session.load();
 
         expect(
           session.stage,
-          isA<LoggedOut>().having((s) => s.server, 'server', local),
+          isA<LoggedOut>().having((s) => s.server, 'server', lan),
         );
-        expect(store.connection?.server, local);
+        expect(store.connection?.server, lan);
       });
 
       for (final address in [
         _address,
         'https://192.168.1.20:8443',
         'https://[::1]:8443',
+        'http://localhost:8080',
       ]) {
         test('a release build keeps $address', () async {
           final origin = Uri.parse(address);
@@ -239,10 +240,28 @@ void main() {
       expect(session.stage, isA<NeedsServer>());
     });
 
-    test('refuses http:// in a release build', () async {
+    test('refuses http:// to another device in a release build', () async {
       await expectLater(
-        controller(allowHttp: false).useServer('http://localhost:8080'),
+        controller(allowHttp: false).useServer('http://192.168.1.20:8080'),
         throwsA(_addressProblem(AddressProblem.insecure)),
+      );
+      expect(server.requests, isEmpty);
+    });
+
+    test('takes http:// to this device in a release build', () async {
+      final session = controller(allowHttp: false);
+
+      await session.useServer('http://localhost:8080');
+
+      final local = Uri.parse('http://localhost:8080');
+      expect(
+        session.stage,
+        isA<LoggedOut>().having((s) => s.server, 'server', local),
+      );
+      expect(store.connection?.server, local);
+      expect(
+        server.requests.single.url.toString(),
+        'http://localhost:8080/health',
       );
     });
 

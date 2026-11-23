@@ -106,8 +106,8 @@ void main() {
       expectRefusal(tester, 'server.invalid_address');
     });
 
-    testWidgets('http:// in a release build', (tester) async {
-      await tryAddress(tester, 'http://localhost:8080', allowHttp: false);
+    testWidgets('http:// to another device in a release build', (tester) async {
+      await tryAddress(tester, 'http://192.168.1.20:8080', allowHttp: false);
       expectRefusal(tester, 'server.insecure_address');
     });
 

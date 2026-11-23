@@ -45,8 +45,15 @@ void main() {
     }
   });
 
-  test('refuses http:// unless it is allowed', () {
-    for (final typed in ['http://localhost:8080', 'HTTP://192.168.1.20']) {
+  test('refuses http:// to another device unless it is allowed', () {
+    for (final typed in [
+      'http://192.168.1.20:8080',
+      'HTTP://192.168.1.20',
+      'http://books.example.ts.net',
+      'http://10.0.2.2:8080',
+      'http://localhost.example.com:8080',
+      'http://127.0.0.1.nip.io:8080',
+    ]) {
       expect(
         () => parseServerAddress(typed, allowHttp: false),
         throwsA(_problem(AddressProblem.insecure)),
@@ -57,6 +64,21 @@ void main() {
       parseServerAddress('books.example.ts.net', allowHttp: false).scheme,
       'https',
     );
+  });
+
+  group('takes http:// to this device even when it is not allowed', () {
+    const cases = {
+      'http://localhost:8080': 'http://localhost:8080',
+      'HTTP://LocalHost:8080': 'http://localhost:8080',
+      'http://localhost': 'http://localhost',
+      'http://127.0.0.1:8080': 'http://127.0.0.1:8080',
+      'http://[::1]:8080': 'http://[::1]:8080',
+    };
+    cases.forEach((typed, origin) {
+      test('"$typed" as $origin', () {
+        expect(parseServerAddress(typed, allowHttp: false).toString(), origin);
+      });
+    });
   });
 
   test('a broken http:// address is invalid, not insecure', () {

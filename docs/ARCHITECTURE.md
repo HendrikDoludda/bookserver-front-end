@@ -35,7 +35,7 @@
 - Every call that needs a session goes through `SessionController.authorized`; nothing else reads tokens.
 - One refresh at a time: a call that needs one while another runs waits for it.
 - Only a refused refresh, a second 401 or signing out ends a session; a network failure keeps it.
-- Release builds use only `https://` server addresses, typed or stored; `kDebugMode` decides.
+- Release builds use `https://` server addresses, typed or stored, and `http://` only to the device itself (`localhost`, `127.0.0.1`, `::1`); `kDebugMode` decides.
 
 ## Catalog
 - The catalog on screen is `CatalogController`'s: the built-in English, or the copy kept from the session's server, until the server's catalog in the picked language arrives. It picks again whenever the session's server or sign-in changes; nothing waits for the server.

@@ -24,5 +24,5 @@
 5. Start the backend, as its [run steps](../../../bookserver_backend/docs/run-deploy/local.md) say.
 6. Run the app on this Mac — [`run-macos`](#commands). While it runs, `r` reloads changed code and keeps the app's state, `R` restarts the app, `q` quits.
 7. Or in the iOS simulator — [`simulator`](#commands) — or an Android emulator — [`emulators`](#commands), then [`emulator`](#commands) with an id from that list — and then [`run-device`](#commands) with an id from [`devices`](#commands).
-8. Connect to the backend: `http://localhost:8080` on this Mac and in the iOS simulator, `http://10.0.2.2:8080` in the Android emulator, where `localhost` is the emulator itself. A release build takes only the server's `https://` address ([tailscale.md](../../../bookserver_backend/docs/run-deploy/tailscale.md)).
+8. Connect to the backend: `http://localhost:8080` on this Mac and in the iOS simulator, `http://10.0.2.2:8080` in the Android emulator, where `localhost` is the emulator itself. A release build takes `http://` only to `localhost`, `127.0.0.1` or `::1`, so not the emulator's `10.0.2.2`; any other server needs its `https://` address ([tailscale.md](../../../bookserver_backend/docs/run-deploy/tailscale.md)).
 9. A real iPhone or iPad gets the app from a Mac where Xcode has your personal Apple ID, as [ios.md](ios.md) says.

@@ -16,4 +16,4 @@
 4. Build — [`build-apk`](#commands). The APK is `build/app/outputs/flutter-apk/app-release.apk`, one file for every phone. Without `android/key.properties` the build stops and says so.
 5. To see which key signed it — [`apk-signer`](#commands): `Signer #1 certificate DN` is the name from step 1.
 6. Install it on a phone connected by USB, with USB debugging on — [`install-apk`](#commands) — or copy the APK onto the phone and open it there, allowing the app you open it with to install apps.
-7. A release build takes only the server's `https://` address: connect it to your `tailscale serve` address ([tailscale.md](../../../bookserver_backend/docs/run-deploy/tailscale.md)), with the Tailscale app on the phone.
+7. A release build needs the server's `https://` address: connect it to your `tailscale serve` address ([tailscale.md](../../../bookserver_backend/docs/run-deploy/tailscale.md)), with the Tailscale app on the phone.
