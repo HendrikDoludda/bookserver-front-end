@@ -45,6 +45,18 @@ void main() {
     0,
   );
 
+  /// A 1000 × 1500 fixed-layout page whose head holds [head] and whose body holds [body].
+  String pageWithHead(String head, String body) =>
+      '''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Not part of the text</title>
+$head
+<meta content="width=1000, height=1500" name="viewport"/>
+</head>
+<body>$body</body>
+</html>''';
+
   List<String> texts(TextLine line) => [for (final run in line.runs) run.text];
 
   RunStyle styleOf(FixedPage page) => page.lines.single.runs.single.style;
@@ -190,11 +202,52 @@ span.big { font-size: 2em; color: #fff; }''',
     },
   );
 
+  test('reads colours with an alpha, by their name, and transparent', () {
+    final fixed = page(
+      '''
+<div style="left:0;top:0;color:transparent">transparent</div>
+<div style="left:0;top:0;color:rgba(255, 255, 255, 0)">rgba none</div>
+<div style="left:0;top:0;color:rgba(0, 0, 0, 0.5)">rgba half</div>
+<div style="left:0;top:0;color:rgb(10 20 30 / 25%)">slash percent</div>
+<div style="left:0;top:0;color:rgba(1, 2, 3, 2)">alpha held to 1</div>
+<div style="left:0;top:0;color:rgba(1, 2, 3)">rgba without alpha</div>
+<div style="left:0;top:0;color:#abcd">short hex</div>
+<div style="left:0;top:0;color:#11223344">long hex</div>
+<div style="left:0;top:0;color:White">name</div>
+<div style="left:0;top:0;color:rebeccapurple">rebeccapurple</div>
+<div style="left:0;top:0;color:#123456;color:rgba(1, 2, 3, half)">unreadable alpha</div>
+<div style="left:0;top:0;color:#123456;color:#12345">five digits</div>
+<div style="left:0;top:0;color:transparent"><span style="left:0;top:0">inherited</span></div>''',
+    );
+
+    expect(
+      {
+        for (final line in fixed.lines)
+          texts(line).join(): line.runs.single.style.color,
+      },
+      {
+        'transparent': const Color(0x00000000),
+        'rgba none': const Color(0x00FFFFFF),
+        'rgba half': const Color(0x80000000),
+        'slash percent': const Color(0x400A141E),
+        'alpha held to 1': const Color(0xFF010203),
+        'rgba without alpha': const Color(0xFF010203),
+        'short hex': const Color(0xDDAABBCC),
+        'long hex': const Color(0x44112233),
+        'name': const Color(0xFFFFFFFF),
+        'rebeccapurple': const Color(0xFF663399),
+        'unreadable alpha': const Color(0xFF123456),
+        'five digits': const Color(0xFF123456),
+        'inherited': const Color(0x00000000),
+      },
+    );
+  });
+
   test('a value it cannot read is dropped, and the one before it applies', () {
     final line = page(
       '<div class="x" style="left:5px;left:5vw;top:0">text</div>',
       css:
-          '.x { color: #333333; color: rebeccapurple; font-size: 18px; font-size: 12pt;'
+          '.x { color: #333333; color: notacolour; font-size: 18px; font-size: 12pt;'
           ' font-weight: 600; font-weight: bolder; line-height: 20px; line-height: 1.5; }',
     ).lines.single;
 
@@ -342,6 +395,113 @@ div.x { letter-spacing: 2px;''',
     );
   });
 
+  test("a page's <style> elements are stylesheets of its own, read in head order with the linked ones", () {
+    final styles = open(
+      {
+        'html/styled.xhtml': pageWithHead(
+          '''
+<style>.x { color: #ff0000; font-size: 20px; }</style>
+<link rel="stylesheet" href="../styles/style.css"/>
+<style><![CDATA[ .x { color: #0000ff; } ]]></style>
+<style>#page { background-image: url(img/p.jpg); }</style>''',
+          '<div id="page"></div><div class="x" style="left:0;top:0">x</div>',
+        ),
+        'html/plain.xhtml': pageWithHead(
+          '<link rel="stylesheet" href="../styles/style.css"/>',
+          '<div class="x" style="left:0;top:0">x</div>',
+        ),
+      },
+      {
+        'OEBPS/styles/style.css':
+            '.x { color: #00ff00; font-size: 30px; letter-spacing: 3px; }',
+      },
+    );
+
+    final styled = FixedPage.parse(styles, 0);
+    final style = styleOf(styled);
+    expect(style.color, const Color(0xFF0000FF), reason: 'the last listed');
+    expect(
+      style.fontSize,
+      30,
+      reason: 'the linked one, listed after the first <style>',
+    );
+    expect(style.letterSpacing, 3);
+    expect(
+      styled.background.image,
+      'OEBPS/html/img/p.jpg',
+      reason: "a <style>'s url() is the page's",
+    );
+    expect(
+      styleOf(FixedPage.parse(styles, 1)).color,
+      const Color(0xFF00FF00),
+      reason: "another page's <style> stays its own",
+    );
+  });
+
+  test("@import brings in the imported file's rules ahead of the file's own, and its fonts", () {
+    final fixed = FixedPage.parse(
+      open(
+        {
+          'page.xhtml': fixedPageXhtml(
+            '<div class="x" style="left:0;top:0">x</div>',
+          ),
+        },
+        {
+          'OEBPS/style.css': '''
+@charset "utf-8";
+@import "base.css";
+@import url('print.css') print;
+@import url(screen.css) screen;
+.x { color: #00ff00; }
+@import "late.css";''',
+          'OEBPS/base.css': '@import url(fonts/font.css);\n.x { color: #ff0000; font-size: 20px; }',
+          'OEBPS/fonts/font.css':
+              '@font-face { font-family: "F1"; src: url(f1.otf); }',
+          'OEBPS/print.css': '.x { letter-spacing: 9px; }',
+          'OEBPS/screen.css': '.x { font-weight: bold; }',
+          'OEBPS/late.css': '.x { font-size: 99px; }',
+        },
+      ),
+      0,
+    );
+
+    final style = styleOf(fixed);
+    expect(
+      style.color,
+      const Color(0xFF00FF00),
+      reason: "the file's own rule outweighs an imported one",
+    );
+    expect(style.fontSize, 20, reason: 'through two imports');
+    expect(style.fontWeight, FontWeight.w700, reason: 'an import for screens');
+    expect(style.letterSpacing, 0, reason: 'an import for print is left out');
+    expect(fixed.fonts, {
+      'F1': ['OEBPS/fonts/f1.otf'],
+    });
+  });
+
+  test('an @import loop or a missing file brings in nothing more', () {
+    final fixed = FixedPage.parse(
+      open(
+        {
+          'page.xhtml': fixedPageXhtml(
+            '<div class="x" style="left:0;top:0">x</div>',
+            stylesheets: ['a.css'],
+          ),
+        },
+        {
+          'OEBPS/a.css':
+              '@import "b.css"; @import "missing.css"; .x { color: #ff0000; }',
+          'OEBPS/b.css': '@import "a.css"; .x { font-size: 20px; }',
+        },
+      ),
+      0,
+    );
+
+    final style = styleOf(fixed);
+    expect(style.color, const Color(0xFFFF0000));
+    expect(style.fontSize, 20);
+  });
+
   test("finds the font files the page's stylesheets declare", () {
     final styles = open(
       {
@@ -406,6 +566,46 @@ body { background-color: #FFFFFF; }
     expect(plain.color, isNull);
     expect(plain.image, isNull);
   });
+
+  test(
+    'a fully transparent background is none: the box under it shows through',
+    () {
+      final styles = open(
+        {
+          'through.xhtml': fixedPageXhtml(
+            '<div style="background-color:transparent"></div>',
+          ),
+          'alone.xhtml': fixedPageXhtml(
+            '<div style="background-color:rgba(0, 0, 0, 0)"></div>',
+            stylesheets: [],
+          ),
+          'faint.xhtml': fixedPageXhtml(
+            '<div style="background-color:rgba(0, 0, 0, 0.5)"></div>',
+          ),
+          'last.xhtml': fixedPageXhtml(
+            '<div style="background-color:#ff0000;background-color:transparent"></div>',
+            stylesheets: [],
+          ),
+        },
+        {'OEBPS/style.css': 'body { background-color: #00ff00; }'},
+      );
+
+      Color? colorOf(int index) =>
+          FixedPage.parse(styles, index).background.color;
+      expect(colorOf(0), const Color(0xFF00FF00), reason: "the body's");
+      expect(colorOf(1), isNull);
+      expect(
+        colorOf(2),
+        const Color(0x80000000),
+        reason: 'a colour that can be seen is kept',
+      );
+      expect(
+        colorOf(3),
+        isNull,
+        reason: 'transparent wins over the colour before it',
+      );
+    },
+  );
 
   test('reads background sizes and positions', () {
     const cases = {
@@ -570,6 +770,122 @@ body { background-color: #FFFFFF; }
         'above its bottom': (const Offset(5, 1390), true),
         'in a heightless box placed by bottom': (const Offset(5, 1410), false),
       },
+    );
+  });
+
+  test("a box's transform applies to every line inside it, around the box's transform-origin", () {
+    final fixed = page('''
+<div style="width:100%;height:100%;transform:scale(0.25);transform-origin:left bottom">
+  <span style="left:400px;bottom:2000px">scaled</span>
+</div>
+<div style="left:100px;top:100px;width:200px;height:100px;transform:rotate(90deg)">
+  <div style="left:10px;top:10px">turned</div>
+</div>
+<div style="transform:scale(2)"><div style="left:5px;top:5px">sizeless</div></div>
+<div style="width:100%;height:100%;transform:scale(0.5);transform-origin:0 0">
+  <div style="width:100%;height:100%;transform:scale(0.5);transform-origin:0 0">
+    <div style="left:400px;top:400px;transform:rotate(90deg)">nested</div>
+  </div>
+</div>
+<div style="left:0;top:0">plain</div>''');
+
+    final lines = {for (final line in fixed.lines) texts(line).join(): line};
+    final scaled = lines['scaled']!;
+    expect(
+      (scaled.position, scaled.placedByBottom),
+      (const Offset(400, -500), true),
+    );
+    expect(
+      scaled.enclosing,
+      isTransform([0.25, 0, 0, 0.25, 0, 1125]),
+      reason: 'around the bottom left of the page-sized box',
+    );
+    expect(scaled.transform, isTransform([1, 0, 0, 1, 0, 0]));
+
+    final turned = lines['turned']!;
+    expect(turned.position, const Offset(110, 110));
+    expect(
+      turned.enclosing,
+      isTransform([0, 1, -1, 0, 350, -50]),
+      reason: "around the box's middle, (200, 150)",
+    );
+
+    expect(
+      lines['sizeless']!.enclosing,
+      isTransform([2, 0, 0, 2, 0, 0]),
+      reason: 'a box without a size turns around its top left',
+    );
+
+    final nested = lines['nested']!;
+    expect(nested.enclosing, isTransform([0.25, 0, 0, 0.25, 0, 0]));
+    expect(
+      nested.transform,
+      isTransform([0, 1, -1, 0, 0, 0]),
+      reason: 'its own, apart',
+    );
+
+    expect(lines['plain']!.enclosing, isTransform([1, 0, 0, 1, 0, 0]));
+  });
+
+  test('an <img> is a picture at its place and size, inside the transforms of the boxes around it', () {
+    final fixed = page(
+      '''
+<div style="left:0;bottom:0;width:1000px;height:1500px">
+  <img src="img/a.jpg" width="1000" height="1500" style="position:absolute"/>
+</div>
+<img src="b.jpg" style="left:10px;top:20px;width:30px;height:40px" width="99"/>
+<img src="c.jpg" style="left:10px;bottom:20px" width="50px"/>
+<img src="https://example.com/d.jpg" width="5" height="5"/>
+<img width="5" height="5"/>
+<div style="width:100%;height:100%;transform:scale(0.5);transform-origin:0 0">
+  <img src="e.jpg"/>
+</div>
+<div style="left:0;top:100px">text <img src="icon.png" width="4" height="4"/> more</div>''',
+    );
+
+    expect(
+      [
+        for (final image in fixed.images)
+          (
+            image.path,
+            image.position,
+            image.placedByBottom,
+            image.width,
+            image.height,
+          ),
+      ],
+      [
+        ('OEBPS/img/a.jpg', Offset.zero, false, 1000, 1500),
+        ('OEBPS/b.jpg', const Offset(10, 20), false, 30, 40),
+        ('OEBPS/c.jpg', const Offset(10, 1480), true, 50, null),
+        ('OEBPS/e.jpg', Offset.zero, false, null, null),
+        ('OEBPS/icon.png', const Offset(0, 100), false, 4, 4),
+      ],
+    );
+    expect(fixed.images[3].enclosing, isTransform([0.5, 0, 0, 0.5, 0, 0]));
+    expect(fixed.images[0].enclosing, isTransform([1, 0, 0, 1, 0, 0]));
+    expect(
+      [for (final line in fixed.lines) texts(line)],
+      [
+        ['text ', 'more'],
+      ],
+      reason: 'a picture in a line leaves its text a line',
+    );
+  });
+
+  test('a run keeps the margin-left of the elements it starts, passed on past a run left out', () {
+    final line = page(
+      '<div style="left:0;top:0"><span style="margin-left:9px"> </span>a'
+      '<span style="margin-left:50px">b<span style="margin-left:5px">c</span></span>'
+      '<span style="margin-left:-10px"><span style="margin-left:2px">d</span></span>'
+      '<span style="margin-left:7px"> </span>'
+      '<span style="font-size:20px;margin-left:0.5em">e</span>'
+      '<span style="margin-left:5%">f</span></div>',
+    ).lines.single;
+
+    expect(
+      [for (final run in line.runs) (run.text, run.marginLeft)],
+      [('a', 9), ('b', 50), ('c', 5), ('d', -8), (' ', 7), ('e', 10), ('f', 0)],
     );
   });
 
@@ -753,6 +1069,109 @@ body {background-color:#FFFFFF;position:absolute;top:0px;left:0px;margin:0px;wid
       reason: "an id's transform outweighs the class's",
     );
     expect(side.origin.alignment, Alignment.bottomLeft);
+  });
+
+  test('a box placed absolutely without a height is 0 tall: a bottom inside it counts from its own place', () {
+    final fixed = page(
+      '''
+<div style="position:absolute;left:100px;top:200px">
+  <div style="left:5px;bottom:50px">absolute</div>
+  <div style="left:5px;bottom:10%">absolute percent</div>
+</div>
+<div style="position:fixed;left:100px;top:200px"><div style="left:5px;bottom:0">fixed</div></div>
+<div class="out" style="left:100px;top:200px"><div style="left:5px;bottom:0">from a class</div></div>
+<div class="out" style="position:static;left:100px;top:200px"><div style="left:5px;bottom:0">static wins</div></div>
+<div style="position:absolute;position:floating;left:100px;top:200px"><div style="left:5px;bottom:0">unknown dropped</div></div>
+<div style="position:relative;left:100px;top:200px"><div style="left:5px;bottom:0">relative</div></div>
+<div style="position:absolute;left:100px;top:200px;height:300px"><div style="left:5px;bottom:0">with a height</div></div>
+<div style="position:absolute;left:100px;bottom:200px"><div style="left:5px;bottom:0">placed by bottom</div></div>''',
+      css: '.out {position:absolute}',
+    );
+
+    expect(
+      {
+        for (final line in fixed.lines)
+          texts(line).join(): (line.position, line.placedByBottom),
+      },
+      {
+        'absolute': (const Offset(105, 150), true),
+        'absolute percent': (const Offset(105, 200), true),
+        'fixed': (const Offset(105, 200), true),
+        'from a class': (const Offset(105, 200), true),
+        'static wins': (const Offset(105, 1500), true),
+        'unknown dropped': (const Offset(105, 200), true),
+        'relative': (const Offset(105, 1500), true),
+        'with a height': (const Offset(105, 500), true),
+        'placed by bottom': (const Offset(105, 1300), true),
+      },
+    );
+  });
+
+  test('a page as PDFTron writes it: a big number pinned to a heightless box, scaled around its '
+      'corner, inside the scaled text container', () {
+    final fixed = page(
+      '''
+<div id="Page" class="PageContainer" style="position:absolute;top:0px;left:0px;width:1000px;height:1500px;"><div id="TextContainer8"><span class="s1 x1 b1">January is</span><div class="s1 t2 o0" style="left:16000px;bottom:30000px;"><span class="s1 fs0 b0 c2">1</span></div></div></div>''',
+      css: '''
+#TextContainer8 {
+	height: 100%;
+	width: 100%;
+	white-space: nowrap;
+	position: absolute;
+	-webkit-transform-origin: left bottom;
+	transform-origin: left bottom;
+	-webkit-transform: scale(0.030000);
+	transform: scale(0.030000);
+}
+.s1 {
+	border:0;
+	margin:0;
+	white-space:pre;
+	position:absolute;
+	display:block;
+}
+.t2 {
+	-webkit-transform:scale(2.240000);
+	transform:scale(2.240000);
+}
+.o0 {
+	-webkit-transform-origin:0.00% 100.00%;
+	transform-origin:0.00% 100.00%;
+}
+.x1{left:1000px}
+.b0{bottom:0px}
+.b1{bottom:40000px}
+.fs0 { font-size:2000.00px; }
+.c2{color:rgb(253,253,253)}''',
+    );
+
+    /// Where [line]'s corner lands on the page, through the boxes around it.
+    Offset onPage(TextLine line) {
+      final LineTransform(:a, :b, :c, :d, :e, :f) = line.enclosing;
+      final Offset(:dx, :dy) = line.position;
+      return Offset(a * dx + c * dy + e, b * dx + d * dy + f);
+    }
+
+    final [january, number] = fixed.lines;
+    expect(texts(january), ['January is']);
+    expect(onPage(january), offsetMoreOrLessEquals(const Offset(30, 300)));
+
+    expect(texts(number), ['1']);
+    expect(number.placedByBottom, isTrue);
+    expect(
+      onPage(number),
+      offsetMoreOrLessEquals(const Offset(480, 600)),
+      reason: "the bottom left of the box it's pinned to",
+    );
+    expect(
+      number.enclosing.a,
+      closeTo(0.0672, 1e-12),
+      reason: "the box's 2.24 inside the container's 0.03",
+    );
+    expect(number.enclosing.d, closeTo(0.0672, 1e-12));
+    expect(number.transform.isIdentity, isTrue);
+    expect(number.style.fontSize, 2000);
+    expect(number.style.color, const Color(0xFFFDFDFD));
   });
 
   test('the size comes from the viewport, else from the page box', () {

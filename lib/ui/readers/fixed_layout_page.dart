@@ -202,15 +202,46 @@ class _FixedLayoutPageState extends State<FixedLayoutPage> {
                 if (background.image case final path?)
                   Positioned.fill(
                     child: Image(
-                      image: ResizeImage(
-                        EpubImage(widget.book.book, path),
-                        width: widget.decodeWidth,
-                        allowUpscaling: false,
-                      ),
+                      // Without a fit, a picture is drawn at the size it is decoded at: decoded
+                      // smaller than its own, it would come out smaller than its page.
+                      image: background.fit == BoxFit.none
+                          ? EpubImage(widget.book.book, path)
+                          : ResizeImage(
+                              EpubImage(widget.book.book, path),
+                              width: widget.decodeWidth,
+                              allowUpscaling: false,
+                            ),
                       fit: background.fit,
                       alignment: background.alignment,
                       errorBuilder: (context, error, stackTrace) =>
                           const SizedBox(),
+                    ),
+                  ),
+                for (final image in page.images)
+                  Positioned(
+                    left: image.position.dx,
+                    top: image.placedByBottom ? null : image.position.dy,
+                    bottom: image.placedByBottom
+                        ? page.size.height - image.position.dy
+                        : null,
+                    width: image.width,
+                    height: image.height,
+                    child: _enclosed(
+                      image.enclosing,
+                      image.position,
+                      image.placedByBottom,
+                      Image(
+                        image: image.width == null && image.height == null
+                            ? EpubImage(widget.book.book, image.path)
+                            : ResizeImage(
+                                EpubImage(widget.book.book, image.path),
+                                width: widget.decodeWidth,
+                                allowUpscaling: false,
+                              ),
+                        fit: BoxFit.fill,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const SizedBox(),
+                      ),
                     ),
                   ),
                 for (final line in page.lines)
@@ -220,24 +251,20 @@ class _FixedLayoutPageState extends State<FixedLayoutPage> {
                     bottom: line.placedByBottom
                         ? page.size.height - line.position.dy
                         : null,
-                    child: Transform(
-                      transform: _matrix(line.transform),
-                      alignment: line.origin.alignment,
-                      origin: line.origin.offset,
-                      child: Text.rich(
-                        TextSpan(
-                          children: [
-                            for (final run in line.runs)
-                              TextSpan(
-                                text: run.text,
-                                style: _textStyle(run.style, page),
-                                recognizer: _links[run],
-                              ),
-                          ],
+                    child: _enclosed(
+                      line.enclosing,
+                      line.position,
+                      line.placedByBottom,
+                      Transform(
+                        transform: _matrix(line.transform),
+                        alignment: line.origin.alignment,
+                        origin: line.origin.offset,
+                        child: Text.rich(
+                          TextSpan(children: _spans(line, page)),
+                          strutStyle: _strutStyle(line.style, page),
+                          softWrap: false,
+                          textScaler: TextScaler.noScaling,
                         ),
-                        strutStyle: _strutStyle(line.style, page),
-                        softWrap: false,
-                        textScaler: TextScaler.noScaling,
                       ),
                     ),
                   ),
@@ -248,6 +275,30 @@ class _FixedLayoutPageState extends State<FixedLayoutPage> {
       ),
     );
   }
+
+  /// [line]'s runs as spans. Flutter's text has no margins: a run's `margin-left` goes before it
+  /// as a word joiner with that much letter spacing.
+  List<TextSpan> _spans(TextLine line, FixedPage page) => [
+    // A line's first character takes half its spacing once more: an unspaced joiner takes that
+    // place.
+    if (line.runs.firstOrNull case final first? when first.marginLeft != 0)
+      TextSpan(text: _joiner, style: _textStyle(first.style, page)),
+    for (final run in line.runs) ...[
+      if (run.marginLeft != 0)
+        TextSpan(
+          text: _joiner,
+          style: _textStyle(
+            run.style,
+            page,
+          ).copyWith(letterSpacing: run.marginLeft),
+        ),
+      TextSpan(
+        text: run.text,
+        style: _textStyle(run.style, page),
+        recognizer: _links[run],
+      ),
+    ],
+  ];
 
   TextStyle _textStyle(RunStyle style, FixedPage page) => TextStyle(
     fontFamily: _family(style.fontFamily, page),
@@ -286,9 +337,30 @@ class _FixedLayoutPageState extends State<FixedLayoutPage> {
   };
 }
 
+/// [child], placed at [position] on the page — its top left corner, or its bottom left when
+/// [placedByBottom] — drawn through [enclosing], a transform in the page's coordinates.
+Widget _enclosed(
+  LineTransform enclosing,
+  Offset position,
+  bool placedByBottom,
+  Widget child,
+) => enclosing.isIdentity
+    ? child
+    : Transform(
+        transform: _matrix(enclosing),
+        // The page's top left, seen from the child's own corner.
+        alignment: placedByBottom ? Alignment.bottomLeft : Alignment.topLeft,
+        origin: -position,
+        child: child,
+      );
+
 // A page that gives no colour of its own is white, as a browser shows it: its text was set on
 // paper, not on the app's theme.
 const _paper = Color(0xFFFFFFFF);
+
+// Letter spacing goes half before a character and half after it, so spacing a visible one would
+// move it too; a word joiner has no width, and breaks no line.
+const _joiner = '⁠';
 
 /// [transform] as the 4×4 matrix Flutter draws with.
 Matrix4 _matrix(LineTransform transform) => Matrix4.identity()

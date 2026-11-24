@@ -8,11 +8,12 @@ import 'package:flutter/painting.dart';
 import 'package:xml/xml.dart';
 
 /// A page of a fixed-layout book as the book lays it out, in CSS pixels: its size, what shows
-/// behind it, and its lines of text, each at its own spot.
+/// behind it, its pictures and its lines of text, each at its own spot.
 class FixedPage {
   const FixedPage({
     required this.size,
     required this.background,
+    required this.images,
     required this.lines,
     required this.fonts,
   });
@@ -24,6 +25,9 @@ class FixedPage {
 
   final Size size;
   final PageBackground background;
+
+  /// In the order the page lists them; drawn above the background and below the text.
+  final List<PageImage> images;
 
   /// In the order the page lists them.
   final List<TextLine> lines;
@@ -51,6 +55,33 @@ class PageBackground {
   final Alignment alignment;
 }
 
+/// A picture an `<img>` puts on the page, placed by its top or its bottom left corner.
+class PageImage {
+  const PageImage({
+    required this.path,
+    required this.position,
+    this.placedByBottom = false,
+    this.width,
+    this.height,
+    this.enclosing = LineTransform.identity,
+  });
+
+  /// The picture's path in the archive.
+  final String path;
+
+  /// Where its top left corner sits on the page — its bottom left corner when [placedByBottom].
+  final Offset position;
+
+  final bool placedByBottom;
+
+  /// Null for the picture's own.
+  final double? width;
+  final double? height;
+
+  /// The transforms of the boxes around it, as one, in the page's coordinates.
+  final LineTransform enclosing;
+}
+
 /// A line of text, placed by its top or its bottom left corner.
 class TextLine {
   const TextLine({
@@ -60,6 +91,7 @@ class TextLine {
     this.placedByBottom = false,
     this.transform = LineTransform.identity,
     this.origin = LineOrigin.center,
+    this.enclosing = LineTransform.identity,
   });
 
   /// Where its top left corner sits on the page — its bottom left corner when [placedByBottom].
@@ -77,6 +109,10 @@ class TextLine {
   final LineTransform transform;
 
   final LineOrigin origin;
+
+  /// The transforms of the boxes around it, as one, in the page's coordinates: applied after its
+  /// own.
+  final LineTransform enclosing;
 
   final List<TextRun> runs;
 }
@@ -97,7 +133,13 @@ class LineTransform {
         0,
       );
 
+  const LineTransform.translation(double dx, double dy)
+    : this(1, 0, 0, 1, dx, dy);
+
   static const identity = LineTransform(1, 0, 0, 1, 0, 0);
+
+  bool get isIdentity =>
+      a == 1 && b == 0 && c == 0 && d == 1 && e == 0 && f == 0;
 
   final double a;
   final double b;
@@ -130,13 +172,17 @@ class LineOrigin {
 
 /// A stretch of a line in one style.
 class TextRun {
-  const TextRun(this.text, this.style, {this.link});
+  const TextRun(this.text, this.style, {this.link, this.marginLeft = 0});
 
   final String text;
   final RunStyle style;
 
   /// The page a tap on the run turns to, as an index into [EpubBook.chapters].
   final int? link;
+
+  /// The `margin-left` of the elements it starts, in CSS pixels: how far it sits from the text
+  /// before it.
+  final double marginLeft;
 }
 
 /// How a run's text looks.
@@ -175,12 +221,22 @@ class BookStyles {
   final EpubBook book;
   final _sheets = <String, _StyleSheet?>{};
 
-  _StyleSheet? _sheet(String path) => _sheets.putIfAbsent(path, () {
+  /// The stylesheet at [path]; null when the book has none there, and while it is being parsed,
+  /// so an `@import` that leads back to it brings in nothing.
+  _StyleSheet? _sheet(String path) {
+    if (_sheets.containsKey(path)) {
+      return _sheets[path];
+    }
+    _sheets[path] = null;
     final bytes = book.read(path);
-    return bytes == null
+    return _sheets[path] = bytes == null
         ? null
-        : _StyleSheet.parse(utf8.decode(bytes, allowMalformed: true), path);
-  });
+        : _StyleSheet.parse(
+            utf8.decode(bytes, allowMalformed: true),
+            path,
+            this,
+          );
+  }
 }
 
 /// Reads one page: which rules apply to each element, what its text inherits, and where it sits.
@@ -193,6 +249,8 @@ class _PageReader {
   late final Size _size;
   final _own = Map<XmlElement, _Own>.identity();
   final _textStyles = Map<XmlElement, RunStyle>.identity();
+  final _images = <PageImage>[];
+  final _lines = <TextLine>[];
 
   FixedPage read() {
     // XHTML read as XML: an HTML parser puts what follows a self-closing `<div/>` inside it, which
@@ -206,24 +264,25 @@ class _PageReader {
         _child(document.rootElement, 'body') ??
         (throw FormatException('The page $_path has no body.'));
     _sheets = [
-      for (final path in _stylesheetPaths(head)) ?_styles._sheet(path),
+      for (final element in head?.childElements ?? const <XmlElement>[])
+        ?_sheetOf(element),
     ];
     final box = body.childElements.firstOrNull;
     _size =
         _viewport(head) ??
         (box == null ? null : _boxSize(box)) ??
         (throw FormatException('The page $_path gives no size.'));
-    final lines = <TextLine>[];
     _addLines(
       body,
       (origin: Offset.zero, bottom: _size.height, height: _size.height),
+      LineTransform.identity,
       null,
-      lines,
     );
     return FixedPage(
       size: _size,
       background: _background([?box, body]),
-      lines: lines,
+      images: _images,
+      lines: _lines,
       fonts: {
         for (final sheet in _sheets)
           for (final MapEntry(key: family, value: files) in sheet.fonts.entries)
@@ -232,12 +291,21 @@ class _PageReader {
     );
   }
 
-  Set<String> _stylesheetPaths(XmlElement? head) => {
-    for (final link in head?.childElements ?? const <XmlElement>[])
-      if (link.localName == 'link' &&
-          _words(link.getAttribute('rel') ?? '').contains('stylesheet'))
-        if (link.getAttribute('href') case final href?) ?_resolve(href, _path),
-  };
+  /// The stylesheet [element] links, or holds as a `<style>` of this page alone.
+  _StyleSheet? _sheetOf(XmlElement element) {
+    switch (element.localName) {
+      case 'link'
+          when _words(element.getAttribute('rel') ?? '').contains('stylesheet'):
+        if (element.getAttribute('href') case final href?) {
+          if (_resolve(href, _path) case final path?) {
+            return _styles._sheet(path);
+          }
+        }
+      case 'style':
+        return _StyleSheet.parse(element.innerText, _path, _styles);
+    }
+    return null;
+  }
 
   /// The size `<meta name="viewport" content="width=…, height=…">` gives the page.
   Size? _viewport(XmlElement? head) {
@@ -270,7 +338,8 @@ class _PageReader {
     };
   }
 
-  /// The colour of the first of [boxes] that has one; the picture of the first that has one.
+  /// The colour of the first of [boxes] that has one that can be seen; the picture of the first
+  /// that has one.
   PageBackground _background(List<XmlElement> boxes) {
     final color = boxes
         .map(
@@ -281,6 +350,8 @@ class _PageReader {
           ),
         )
         .nonNulls
+        // CSS draws a fully transparent background as none: the box under it shows through.
+        .where((color) => color.a > 0)
         .firstOrNull;
     for (final box in boxes) {
       final own = _ownOf(box);
@@ -305,15 +376,16 @@ class _PageReader {
     return PageBackground(color: color);
   }
 
-  /// Adds the lines inside [element], or [element] itself, to [lines]: an element with a `left`,
-  /// `top` or `bottom` and none inside it is a line; one with some inside is the box they are
-  /// placed in. [element] is placed in [frame]. Answers whether [element] is or holds such an
-  /// element.
+  /// Adds the pictures and lines inside [element], or [element] itself, to the page: an `<img>`
+  /// is a picture; an element with a `left`, `top` or `bottom` and none inside it is a line; one
+  /// with some inside is the box they are placed in, and its `transform` theirs. [element] is
+  /// placed in [frame], inside boxes whose transforms make [enclosing]. Answers whether
+  /// [element] is or holds such an element.
   bool _addLines(
     XmlElement element,
     _Frame frame,
+    LineTransform enclosing,
     int? link,
-    List<TextLine> lines,
   ) {
     final own = _ownOf(element);
     final em = _textStyleOf(element).fontSize;
@@ -332,37 +404,71 @@ class _PageReader {
       frame.origin.dx + (left ?? 0),
       byBottom ? frame.bottom - bottom : frame.origin.dy + (top ?? 0),
     );
+    final width = _nonNegative(length('width', _size.width));
+    final height = _nonNegative(length('height', frame.height));
+    if (element.localName == 'img') {
+      if (element.getAttribute('src') case final source?) {
+        if (_resolve(source, _path) case final path?) {
+          _images.add(
+            PageImage(
+              path: path,
+              position: position,
+              placedByBottom: byBottom,
+              width: width ?? _attributeLength(element.getAttribute('width')),
+              height:
+                  height ?? _attributeLength(element.getAttribute('height')),
+              enclosing: enclosing,
+            ),
+          );
+        }
+      }
+      return placed;
+    }
     final linkHere = _linkOf(element) ?? link;
     var inner = frame;
     if (placed) {
-      final height = _nonNegative(length('height', frame.height));
       final origin = byBottom ? position - Offset(0, height ?? 0) : position;
-      inner = height == null
+      // CSS makes a positioned box with no height as tall as its content, and content that is
+      // placed itself takes no room.
+      final boxHeight = height ?? (_positioned(own) ? 0.0 : null);
+      inner = boxHeight == null
           ? (origin: origin, bottom: frame.bottom, height: frame.height)
-          : (origin: origin, bottom: origin.dy + height, height: height);
+          : (origin: origin, bottom: origin.dy + boxHeight, height: boxHeight);
+    }
+    final transform =
+        _winning(own, 'transform', (value) => _transform(value.text)) ??
+        LineTransform.identity;
+    final origin =
+        _winning(own, 'transform-origin', (value) => _origin(value.text, em)) ??
+        LineOrigin.center;
+    var inside = enclosing;
+    if (!transform.isIdentity) {
+      // A box without a size is measured as none: its origin falls on its top left.
+      final point =
+          inner.origin +
+          origin.alignment.alongSize(Size(width ?? 0, height ?? 0)) +
+          origin.offset;
+      inside =
+          enclosing *
+          LineTransform.translation(point.dx, point.dy) *
+          transform *
+          LineTransform.translation(-point.dx, -point.dy);
     }
     var holdsPlaced = false;
     for (final child in element.childElements) {
-      holdsPlaced = _addLines(child, inner, linkHere, lines) || holdsPlaced;
+      holdsPlaced = _addLines(child, inner, inside, linkHere) || holdsPlaced;
     }
     if (placed && !holdsPlaced) {
       final runs = _runs(element, linkHere);
       if (runs.isNotEmpty) {
-        lines.add(
+        _lines.add(
           TextLine(
             position: position,
             placedByBottom: byBottom,
             style: _textStyleOf(element),
-            transform:
-                _winning(own, 'transform', (value) => _transform(value.text)) ??
-                LineTransform.identity,
-            origin:
-                _winning(
-                  own,
-                  'transform-origin',
-                  (value) => _origin(value.text, em),
-                ) ??
-                LineOrigin.center,
+            transform: transform,
+            origin: origin,
+            enclosing: enclosing,
             runs: runs,
           ),
         );
@@ -373,13 +479,26 @@ class _PageReader {
 
   List<TextRun> _runs(XmlElement line, int? link) {
     final runs = <TextRun>[];
+    // The margins of the elements entered since the last text, which the next text keeps.
+    var margin = 0.0;
     void collect(XmlElement element, int? link) {
       final style = _textStyleOf(element);
       for (final node in element.children) {
         switch (node) {
           case XmlText():
-            runs.add(TextRun(node.value, style, link: link));
+            runs.add(
+              TextRun(node.value, style, link: link, marginLeft: margin),
+            );
+            margin = 0;
           case XmlElement():
+            margin +=
+                _winning(
+                  _ownOf(node),
+                  'margin-left',
+                  (value) =>
+                      _length(value.text, em: _textStyleOf(node).fontSize),
+                ) ??
+                0;
             collect(node, _linkOf(node) ?? link);
           default:
         }
@@ -451,9 +570,23 @@ class _PageReader {
 }
 
 /// What the elements inside a placed box are placed from: the box's top left on the page, and the
-/// bottom edge and height of the nearest box around them that gives its height — the page's when
-/// none does, as CSS places a box with no placed box around it on the page.
+/// bottom edge and height of the nearest box around them that gives its height or is `position:
+/// absolute` or `fixed` (0 tall without one) — the page's when none is, as CSS places a box with
+/// no placed box around it on the page.
 typedef _Frame = ({Offset origin, double bottom, double height});
+
+/// Whether [own] places its element out of the flow, by `position: absolute` or `fixed`.
+bool _positioned(_Own own) =>
+    _winning(
+      own,
+      'position',
+      (value) => switch (value.text.toLowerCase()) {
+        'absolute' || 'fixed' => true,
+        'static' || 'relative' || 'sticky' => false,
+        _ => null,
+      },
+    ) ??
+    false;
 
 /// What [element] inherits from [parent], with its own declarations on top.
 RunStyle _inherit(RunStyle parent, _Own own) {
@@ -503,21 +636,27 @@ RunStyle _inherit(RunStyle parent, _Own own) {
 List<TextRun> _collapsed(List<TextRun> runs) {
   final result = <TextRun>[];
   var afterSpace = true;
+  // A run left out passes its margin on: the gap stays before the text that follows.
+  var margin = 0.0;
   for (final run in runs) {
     var text = run.text.replaceAll(_whiteSpace, ' ');
     if (afterSpace && text.startsWith(' ')) {
       text = text.substring(1);
     }
+    margin += run.marginLeft;
     if (text.isNotEmpty) {
       afterSpace = text.endsWith(' ');
-      result.add(TextRun(text, run.style, link: run.link));
+      result.add(TextRun(text, run.style, link: run.link, marginLeft: margin));
+      margin = 0;
     }
   }
   if (result.isNotEmpty && result.last.text.endsWith(' ')) {
     final last = result.removeLast();
     final text = last.text.substring(0, last.text.length - 1);
     if (text.isNotEmpty) {
-      result.add(TextRun(text, last.style, link: last.link));
+      result.add(
+        TextRun(text, last.style, link: last.link, marginLeft: last.marginLeft),
+      );
     }
   }
   return result;
@@ -526,7 +665,7 @@ List<TextRun> _collapsed(List<TextRun> runs) {
 /// One stylesheet's rules, indexed by what an element must have for them to match, and its
 /// `@font-face` files.
 class _StyleSheet {
-  _StyleSheet._(List<_Rule> rules, this.fonts) {
+  _StyleSheet._(this.rules, this.fonts) {
     for (final rule in rules) {
       final selector = rule.selector;
       if (selector.id case final id?) {
@@ -544,15 +683,39 @@ class _StyleSheet {
   /// Reads the rules and font files of the stylesheet at [path]. Its rules and declarations are
   /// split here rather than by csslib, which drops the rest of a file at the first value it
   /// can't parse — a browser drops only that declaration.
-  factory _StyleSheet.parse(String text, String path) {
+  factory _StyleSheet.parse(String text, String path, BookStyles styles) {
     final rules = <_Rule>[];
     final fonts = <String, List<String>>{};
+    // CSS reads an `@import` only ahead of every rule.
+    var rulesBegan = false;
     for (final (prelude, body) in _blocks(_withoutComments(text))) {
+      final atRule = _atRuleName.firstMatch(prelude)?[1]?.toLowerCase();
+      if (atRule == 'import' && body == null) {
+        if (!rulesBegan) {
+          if (_importPath(prelude, path) case final imported?) {
+            if (styles._sheet(imported) case final sheet?) {
+              for (final rule in sheet.rules) {
+                rules.add(
+                  _Rule(rule.selector, rule.declarations, rules.length),
+                );
+              }
+              for (final MapEntry(key: family, value: files)
+                  in sheet.fonts.entries) {
+                (fonts[family] ??= []).addAll(files);
+              }
+            }
+          }
+        }
+        continue;
+      }
+      if (atRule != 'charset') {
+        rulesBegan = true;
+      }
       if (body == null) {
         continue;
       }
-      if (_atRuleName.firstMatch(prelude) case final atRule?) {
-        if (atRule[1]!.toLowerCase() == 'font-face') {
+      if (atRule != null) {
+        if (atRule == 'font-face') {
           _addFontFace(fonts, _declarations(body, path), path);
         }
         continue;
@@ -564,6 +727,9 @@ class _StyleSheet {
     }
     return _StyleSheet._(rules, fonts);
   }
+
+  /// In order, the rules it imports first.
+  final List<_Rule> rules;
 
   final Map<String, List<String>> fonts;
   final _byId = <String, List<_Rule>>{};
@@ -652,6 +818,23 @@ List<_Selector> _selectors(String prelude) {
     ],
     _ => const [],
   };
+}
+
+/// The file an `@import` brings in, from the stylesheet at [base]; null for one from outside the
+/// book, or one limited to a medium other than the screen, such as `print`.
+String? _importPath(String prelude, String base) {
+  final match = _importPattern.firstMatch(prelude);
+  if (match == null) {
+    return null;
+  }
+  final media = match[6]!.trim().toLowerCase();
+  if (media.isNotEmpty && media != 'all' && media != 'screen') {
+    return null;
+  }
+  return _resolve(
+    match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5]!,
+    base,
+  );
 }
 
 /// Adds the font file an `@font-face` rule's [declarations] name to [fonts], under its family.
@@ -931,22 +1114,48 @@ bool? _italic(String text) => switch (text.toLowerCase()) {
 bool _underline(String text) =>
     _words(text.toLowerCase()).contains('underline');
 
-/// `#rgb`, `#rrggbb` or `rgb(r, g, b)`.
+/// `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()` or `rgba()` with an alpha or without, a
+/// colour's name, or `transparent`.
 Color? _color(String text) {
   final value = text.toLowerCase();
+  if (value == 'transparent') {
+    return const Color(0x00000000);
+  }
+  if (_namedColors[value] case final rgb?) {
+    return Color(0xFF000000 | rgb);
+  }
   if (_hexColor.firstMatch(value) case final match?) {
-    final hex = match[1]!.length == 3
-        ? [for (final digit in match[1]!.split('')) '$digit$digit'].join()
-        : match[1]!;
-    return Color(0xFF000000 | int.parse(hex, radix: 16));
+    final digits = match[1]!;
+    final hex = digits.length <= 4
+        ? [for (final digit in digits.split('')) '$digit$digit'].join()
+        : digits;
+    final number = int.parse(hex, radix: 16);
+    // CSS writes the alpha last, Flutter first.
+    return hex.length == 8
+        ? Color((number & 0xFF) << 24 | number >> 8)
+        : Color(0xFF000000 | number);
   }
   if (_rgbColor.firstMatch(value) case final match?) {
     final [red, green, blue] = [
       for (final group in [1, 2, 3]) math.min(255, int.parse(match[group]!)),
     ];
-    return Color(0xFF000000 | red << 16 | green << 8 | blue);
+    final alpha = match[4] == null ? 1.0 : _alpha(match[4]!);
+    return alpha == null
+        ? null
+        : Color.fromARGB((alpha * 255).round(), red, green, blue);
   }
   return null;
+}
+
+/// An alpha written as a number or a percentage, held to 0–1.
+double? _alpha(String text) {
+  final percent = text.endsWith('%');
+  final number = double.tryParse(
+    percent ? text.substring(0, text.length - 1) : text,
+  );
+  return number == null
+      ? null
+      : (percent ? number / 100 : number).clamp(0, 1).toDouble();
 }
 
 /// A `transform`: `matrix()`, `scale()` and `rotate()`, one after the other as CSS lists them;
@@ -1009,6 +1218,14 @@ double? _angle(String text) {
 
 double? _plainNumber(String text) =>
     _plainNumberPattern.hasMatch(text) ? double.parse(text) : null;
+
+/// An `<img>`'s `width` or `height` attribute in CSS pixels: the number it starts with, as a
+/// browser reads `1314` and `1314px` alike.
+double? _attributeLength(String? text) =>
+    switch (_leadingNumber.firstMatch(text ?? '')) {
+      final match? => _positive(double.parse(match[1]!)),
+      null => null,
+    };
 
 /// A `transform-origin` of keywords, percentages and lengths; a third value, the depth, has no
 /// part in a flat page.
@@ -1164,13 +1381,16 @@ List<String> _words(String text) => [
 const _number = r'[+-]?(?:\d+\.?\d*|\.\d+)';
 final _lengthPattern = RegExp('^($_number)(px|em|%)?\$', caseSensitive: false);
 final _percentage = RegExp('^($_number)%\$');
-final _hexColor = RegExp(r'^#([0-9a-f]{3}|[0-9a-f]{6})$');
+final _hexColor = RegExp(r'^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$');
 final _rgbColor = RegExp(
-  r'^rgb\(\s*(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})\s*\)$',
+  r'^rgba?\(\s*(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})'
+  '(?:\\s*[,/]\\s*($_number%?))?'
+  r'\s*\)$',
 );
 final _transformFunction = RegExp(r'([a-zA-Z]+)\(([^)]*)\)');
 final _argumentSeparator = RegExp(r'\s*,\s*|\s+');
 final _plainNumberPattern = RegExp('^$_number\$');
+final _leadingNumber = RegExp(r'^\s*(\d+(?:\.\d+)?)');
 final _anglePattern = RegExp(
   '^($_number)(deg|rad|turn)?\$',
   caseSensitive: false,
@@ -1182,5 +1402,162 @@ final _url = RegExp(
 final _firstFamily = RegExp(r'''^\s*(?:"([^"]*)"|'([^']*)'|([^,]+))''');
 final _important = RegExp(r'\s*!\s*important\s*$', caseSensitive: false);
 final _atRuleName = RegExp(r'^@([-\w]+)');
+final _importPattern = RegExp(
+  r'''^@import\s*(?:url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s]*))\s*\)|"([^"]*)"|'([^']*)')(.*)$''',
+  caseSensitive: false,
+  dotAll: true,
+);
 // HTML's white space; a no-break space is text.
 final _whiteSpace = RegExp(r'[ \t\n\r\f]+');
+
+/// CSS's named colours as CSS Color 4 lists them, each as its red, green and blue.
+const _namedColors = {
+  'aliceblue': 0xF0F8FF,
+  'antiquewhite': 0xFAEBD7,
+  'aqua': 0x00FFFF,
+  'aquamarine': 0x7FFFD4,
+  'azure': 0xF0FFFF,
+  'beige': 0xF5F5DC,
+  'bisque': 0xFFE4C4,
+  'black': 0x000000,
+  'blanchedalmond': 0xFFEBCD,
+  'blue': 0x0000FF,
+  'blueviolet': 0x8A2BE2,
+  'brown': 0xA52A2A,
+  'burlywood': 0xDEB887,
+  'cadetblue': 0x5F9EA0,
+  'chartreuse': 0x7FFF00,
+  'chocolate': 0xD2691E,
+  'coral': 0xFF7F50,
+  'cornflowerblue': 0x6495ED,
+  'cornsilk': 0xFFF8DC,
+  'crimson': 0xDC143C,
+  'cyan': 0x00FFFF,
+  'darkblue': 0x00008B,
+  'darkcyan': 0x008B8B,
+  'darkgoldenrod': 0xB8860B,
+  'darkgray': 0xA9A9A9,
+  'darkgreen': 0x006400,
+  'darkgrey': 0xA9A9A9,
+  'darkkhaki': 0xBDB76B,
+  'darkmagenta': 0x8B008B,
+  'darkolivegreen': 0x556B2F,
+  'darkorange': 0xFF8C00,
+  'darkorchid': 0x9932CC,
+  'darkred': 0x8B0000,
+  'darksalmon': 0xE9967A,
+  'darkseagreen': 0x8FBC8F,
+  'darkslateblue': 0x483D8B,
+  'darkslategray': 0x2F4F4F,
+  'darkslategrey': 0x2F4F4F,
+  'darkturquoise': 0x00CED1,
+  'darkviolet': 0x9400D3,
+  'deeppink': 0xFF1493,
+  'deepskyblue': 0x00BFFF,
+  'dimgray': 0x696969,
+  'dimgrey': 0x696969,
+  'dodgerblue': 0x1E90FF,
+  'firebrick': 0xB22222,
+  'floralwhite': 0xFFFAF0,
+  'forestgreen': 0x228B22,
+  'fuchsia': 0xFF00FF,
+  'gainsboro': 0xDCDCDC,
+  'ghostwhite': 0xF8F8FF,
+  'gold': 0xFFD700,
+  'goldenrod': 0xDAA520,
+  'gray': 0x808080,
+  'green': 0x008000,
+  'greenyellow': 0xADFF2F,
+  'grey': 0x808080,
+  'honeydew': 0xF0FFF0,
+  'hotpink': 0xFF69B4,
+  'indianred': 0xCD5C5C,
+  'indigo': 0x4B0082,
+  'ivory': 0xFFFFF0,
+  'khaki': 0xF0E68C,
+  'lavender': 0xE6E6FA,
+  'lavenderblush': 0xFFF0F5,
+  'lawngreen': 0x7CFC00,
+  'lemonchiffon': 0xFFFACD,
+  'lightblue': 0xADD8E6,
+  'lightcoral': 0xF08080,
+  'lightcyan': 0xE0FFFF,
+  'lightgoldenrodyellow': 0xFAFAD2,
+  'lightgray': 0xD3D3D3,
+  'lightgreen': 0x90EE90,
+  'lightgrey': 0xD3D3D3,
+  'lightpink': 0xFFB6C1,
+  'lightsalmon': 0xFFA07A,
+  'lightseagreen': 0x20B2AA,
+  'lightskyblue': 0x87CEFA,
+  'lightslategray': 0x778899,
+  'lightslategrey': 0x778899,
+  'lightsteelblue': 0xB0C4DE,
+  'lightyellow': 0xFFFFE0,
+  'lime': 0x00FF00,
+  'limegreen': 0x32CD32,
+  'linen': 0xFAF0E6,
+  'magenta': 0xFF00FF,
+  'maroon': 0x800000,
+  'mediumaquamarine': 0x66CDAA,
+  'mediumblue': 0x0000CD,
+  'mediumorchid': 0xBA55D3,
+  'mediumpurple': 0x9370DB,
+  'mediumseagreen': 0x3CB371,
+  'mediumslateblue': 0x7B68EE,
+  'mediumspringgreen': 0x00FA9A,
+  'mediumturquoise': 0x48D1CC,
+  'mediumvioletred': 0xC71585,
+  'midnightblue': 0x191970,
+  'mintcream': 0xF5FFFA,
+  'mistyrose': 0xFFE4E1,
+  'moccasin': 0xFFE4B5,
+  'navajowhite': 0xFFDEAD,
+  'navy': 0x000080,
+  'oldlace': 0xFDF5E6,
+  'olive': 0x808000,
+  'olivedrab': 0x6B8E23,
+  'orange': 0xFFA500,
+  'orangered': 0xFF4500,
+  'orchid': 0xDA70D6,
+  'palegoldenrod': 0xEEE8AA,
+  'palegreen': 0x98FB98,
+  'paleturquoise': 0xAFEEEE,
+  'palevioletred': 0xDB7093,
+  'papayawhip': 0xFFEFD5,
+  'peachpuff': 0xFFDAB9,
+  'peru': 0xCD853F,
+  'pink': 0xFFC0CB,
+  'plum': 0xDDA0DD,
+  'powderblue': 0xB0E0E6,
+  'purple': 0x800080,
+  'rebeccapurple': 0x663399,
+  'red': 0xFF0000,
+  'rosybrown': 0xBC8F8F,
+  'royalblue': 0x4169E1,
+  'saddlebrown': 0x8B4513,
+  'salmon': 0xFA8072,
+  'sandybrown': 0xF4A460,
+  'seagreen': 0x2E8B57,
+  'seashell': 0xFFF5EE,
+  'sienna': 0xA0522D,
+  'silver': 0xC0C0C0,
+  'skyblue': 0x87CEEB,
+  'slateblue': 0x6A5ACD,
+  'slategray': 0x708090,
+  'slategrey': 0x708090,
+  'snow': 0xFFFAFA,
+  'springgreen': 0x00FF7F,
+  'steelblue': 0x4682B4,
+  'tan': 0xD2B48C,
+  'teal': 0x008080,
+  'thistle': 0xD8BFD8,
+  'tomato': 0xFF6347,
+  'turquoise': 0x40E0D0,
+  'violet': 0xEE82EE,
+  'wheat': 0xF5DEB3,
+  'white': 0xFFFFFF,
+  'whitesmoke': 0xF5F5F5,
+  'yellow': 0xFFFF00,
+  'yellowgreen': 0x9ACD32,
+};

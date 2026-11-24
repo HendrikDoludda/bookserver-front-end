@@ -296,6 +296,162 @@ span.b { font-family: Helvetica; font-size: 10px; text-decoration: underline; }'
     );
   });
 
+  testWidgets(
+    "a box's transform places and scales the lines inside it, and their links still turn pages",
+    (tester) async {
+      await show(
+        tester,
+        FixedLayoutBook(
+          open(
+            [
+              '<div class="text"><span class="l" style="left:400px;bottom:2000px">'
+                  'small <a href="p2.xhtml">print</a></span></div>',
+              '<div style="left:100px;top:100px">two</div>',
+            ],
+            css:
+                '.text { width: 100%; height: 100%; transform: scale(0.25); '
+                'transform-origin: left bottom; } '
+                '.l { font-size: 40px; line-height: 60px; }',
+          ),
+          7,
+          loadFont: countLoads,
+        ),
+      );
+
+      final page = pageRect(tester);
+      final scale = page.width / 1000;
+      final line = text('small print');
+      expect(
+        tester.getBottomLeft(line),
+        offsetMoreOrLessEquals(page.topLeft + const Offset(100, 1000) * scale),
+        reason: '2000 px above the box\'s bottom, a quarter of it on the page',
+      );
+      expect(
+        tester.getBottomLeft(line).dy - tester.getTopLeft(line).dy,
+        moreOrLessEquals(60 * 0.25 * scale),
+      );
+
+      await tapOn(tester, 'small print', 'print');
+      await tester.pumpAndSettle();
+      expect(turns, [1]);
+      expect(text('two'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'pictures are drawn where their boxes place them, below the text',
+    (tester) async {
+      await show(
+        tester,
+        FixedLayoutBook(
+          open(
+            [
+              '<div style="left:100px;top:100px">over</div>'
+                  '<div style="left:0;bottom:0;width:1000px;height:1500px">'
+                  '<img src="images/photo.png" width="1000" height="1500"/></div>'
+                  '<div style="width:100%;height:100%;transform:scale(0.5);transform-origin:0 0">'
+                  '<img src="images/photo.png" width="1000" height="1500"/></div>',
+            ],
+            files: {'OEBPS/images/photo.png': onePixelPng},
+          ),
+          7,
+          loadFont: countLoads,
+        ),
+      );
+
+      final page = pageRect(tester);
+      final pictures = find.descendant(
+        of: find.byType(FixedLayoutPage),
+        matching: find.byType(Image),
+      );
+      expect(
+        tester.getRect(pictures.first),
+        rectMoreOrLessEquals(page),
+        reason: 'the whole page',
+      );
+      final half = tester.renderObject<RenderBox>(pictures.last);
+      expect(
+        Rect.fromPoints(
+          half.localToGlobal(Offset.zero),
+          half.localToGlobal(half.size.bottomRight(Offset.zero)),
+        ),
+        rectMoreOrLessEquals(
+          Rect.fromLTWH(page.left, page.top, page.width / 2, page.height / 2),
+        ),
+        reason: 'its box scaled to half, from the top left',
+      );
+      final stack = tester.widget<Stack>(
+        find.descendant(
+          of: find.byType(FixedLayoutPage),
+          matching: find.byType(Stack),
+        ),
+      );
+      bool holds(Widget child, Finder finder) => find
+          .descendant(of: find.byWidget(child), matching: finder)
+          .evaluate()
+          .isNotEmpty;
+      expect(
+        [
+          for (final child in stack.children.skip(1))
+            holds(child, find.byType(Image))
+                ? 'picture'
+                : holds(child, text('over'))
+                ? 'line'
+                : 'other',
+        ],
+        ['picture', 'picture', 'line'],
+        reason: 'the pictures, then the line, though the page lists it first',
+      );
+    },
+  );
+
+  testWidgets(
+    "a run's margin-left moves it and all after it, back when negative",
+    (tester) async {
+      await show(
+        tester,
+        FixedLayoutBook(
+          open([
+            '<div style="left:100px;top:100px;font-size:20px">a'
+                '<span style="margin-left:50px">b</span>'
+                '<span style="margin-left:-10px">c</span></div>'
+                '<div style="left:100px;top:300px;font-size:20px">x<span>y</span><span>z</span></div>'
+                '<div style="left:100px;top:500px;font-size:20px">'
+                '<span style="margin-left:30px">q</span>rs</div>',
+          ]),
+          7,
+          loadFont: countLoads,
+        ),
+      );
+
+      // Where the character at [index] of [line] starts; each margin is a word joiner in the text.
+      double start(String line, int index) => tester
+          .renderObject<RenderParagraph>(text(line))
+          .getBoxesForSelection(
+            TextSelection(baseOffset: index, extentOffset: index + 1),
+          )
+          .first
+          .left;
+      const spaced = 'a⁠b⁠c';
+      expect(
+        start(spaced, 0),
+        moreOrLessEquals(start('xyz', 0)),
+        reason: 'the character before a margin stays',
+      );
+      expect(start(spaced, 2) - start('xyz', 1), moreOrLessEquals(50));
+      expect(
+        start(spaced, 4) - start('xyz', 2),
+        moreOrLessEquals(40),
+        reason: 'both margins',
+      );
+      expect(
+        start('⁠⁠qrs', 2) - start('xyz', 0),
+        moreOrLessEquals(30),
+        reason: "one before the line's first character",
+      );
+    },
+  );
+
   testWidgets('a line that names no origin turns around its middle', (
     tester,
   ) async {
@@ -391,6 +547,42 @@ span.b { font-family: Helvetica; font-size: 10px; text-decoration: underline; }'
           matching: find.byType(Image),
         ),
         findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'a background drawn at its own size is decoded whole, whatever the decode width',
+    (tester) async {
+      await show(
+        tester,
+        FixedLayoutBook(
+          open(
+            ['<div id="page" style="left:0;top:0"></div>'],
+            css:
+                '#page { background-image: url(images/photo.png);'
+                ' background-size: auto; }',
+            files: {'OEBPS/images/photo.png': onePixelPng},
+          ),
+          7,
+          loadFont: countLoads,
+        ),
+      );
+
+      final picture = tester.widget<Image>(
+        find.descendant(
+          of: find.byType(FixedLayoutPage),
+          matching: find.byType(Image),
+        ),
+      );
+      expect(picture.fit, BoxFit.none);
+      expect(
+        picture.image,
+        isA<EpubImage>().having(
+          (image) => image.path,
+          'path',
+          'OEBPS/images/photo.png',
+        ),
       );
     },
   );
