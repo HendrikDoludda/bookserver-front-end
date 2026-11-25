@@ -61,6 +61,8 @@
     "username_taken": "This username is already taken."
   },
   "home": {
+    "continue_empty": "No book started yet. The ones you're in the middle of show here.",
+    "continue_reading": "Continue reading",
     "empty": "No libraries yet. They appear once an admin scans the book folders.",
     "reload": "Reload",
     "title": "Libraries"

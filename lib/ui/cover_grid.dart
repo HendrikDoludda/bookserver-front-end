@@ -181,6 +181,18 @@ class CoverCard extends StatelessWidget {
   }
 }
 
+/// What the card of a series or a library shows of its [count] books, [finished] of them read: a
+/// bar while some are, the check once all are.
+({double? progress, bool finished}) finishedShare(int finished, int count) {
+  if (count > 0 && finished >= count) {
+    return (progress: null, finished: true);
+  }
+  if (finished > 0) {
+    return (progress: finished / count, finished: false);
+  }
+  return (progress: null, finished: false);
+}
+
 /// The style of a [CoverCard.detail]: smaller and quieter than the name.
 TextStyle _detailStyle(BuildContext context) {
   final theme = Theme.of(context);

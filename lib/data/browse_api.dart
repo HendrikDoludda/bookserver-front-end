@@ -8,6 +8,8 @@ class Library {
     required this.id,
     required this.name,
     required this.seriesCount,
+    this.bookCount = 0,
+    this.finishedCount = 0,
   });
 
   final int id;
@@ -15,6 +17,10 @@ class Library {
 
   /// How many series the library holds.
   final int seriesCount;
+
+  /// How many books its series hold, and how many of them the signed-in user finished.
+  final int bookCount;
+  final int finishedCount;
 }
 
 class Series {
@@ -92,12 +98,16 @@ class Book {
     this.volume,
     this.chapter,
     this.progress = Progress.none,
+    this.seriesName,
   });
 
   final int id;
   final String title;
   final BookFormat format;
   final int? volume;
+
+  /// The name of the book's series, where a list of books from several series names it.
+  final String? seriesName;
 
   /// A chapter can be a decimal one: 1.5 lies between chapters 1 and 2.
   final num? chapter;
@@ -183,6 +193,14 @@ class BrowseApi {
         id: id,
         name: name,
         seriesCount: count,
+        bookCount: switch (entry) {
+          {'book_count': int books} => books,
+          _ => 0,
+        },
+        finishedCount: switch (entry) {
+          {'finished_count': int finished} => finished,
+          _ => 0,
+        },
       ),
       _ => throw const FormatException('Not a library.'),
     },
@@ -205,28 +223,36 @@ class BrowseApi {
     },
   );
 
-  Future<List<Book>> booksOf(int seriesId, String sessionToken) => _list(
-    '/api/v1/series/$seriesId/books',
-    sessionToken,
-    (entry) => switch (entry) {
-      {
-        'id': int id,
-        'title': String title,
-        'format': String format,
-        'volume_number': int? volume,
-        'chapter_number': num? chapter,
-      } =>
-        Book(
-          id: id,
-          title: title,
-          format: BookFormat.fromServer(format),
-          volume: volume,
-          chapter: chapter,
-          progress: _progressIn(entry),
-        ),
-      _ => throw const FormatException('Not a book.'),
-    },
-  );
+  Future<List<Book>> booksOf(int seriesId, String sessionToken) =>
+      _list('/api/v1/series/$seriesId/books', sessionToken, _book);
+
+  /// The books the signed-in user started and hasn't finished, the most recently read first, each
+  /// with its series' name.
+  Future<List<Book>> startedBooks(String sessionToken) =>
+      _list('/api/v1/books/started', sessionToken, _book);
+
+  static Book _book(Object? entry) => switch (entry) {
+    {
+      'id': int id,
+      'title': String title,
+      'format': String format,
+      'volume_number': int? volume,
+      'chapter_number': num? chapter,
+    } =>
+      Book(
+        id: id,
+        title: title,
+        format: BookFormat.fromServer(format),
+        volume: volume,
+        chapter: chapter,
+        progress: _progressIn(entry),
+        seriesName: switch (entry) {
+          {'series_name': String name} => name,
+          _ => null,
+        },
+      ),
+    _ => throw const FormatException('Not a book.'),
+  };
 
   /// The series of the book [bookId], the mode the signed-in user reads it in, and their progress
   /// in it.

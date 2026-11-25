@@ -20,13 +20,22 @@ void main() {
   // Every test asks the same server for the same covers: none may come from a test before.
   setUp(() => PaintingBinding.instance.imageCache.clear());
 
-  /// Libraries numbered from 1, each with one series unless [seriesCounts] names its number.
+  /// Libraries numbered from 1, each with one series unless [seriesCounts] names its number, and
+  /// with the books and finished books [bookCounts] and [finishedCounts] name, else none.
   http.Response libraries(
     List<String> names, {
     Map<String, int> seriesCounts = const {},
+    Map<String, int> bookCounts = const {},
+    Map<String, int> finishedCounts = const {},
   }) => jsonAnswer([
     for (final (index, name) in names.indexed)
-      {'id': index + 1, 'name': name, 'series_count': seriesCounts[name] ?? 1},
+      {
+        'id': index + 1,
+        'name': name,
+        'series_count': seriesCounts[name] ?? 1,
+        'book_count': bookCounts[name] ?? 0,
+        'finished_count': finishedCounts[name] ?? 0,
+      },
   ]);
 
   VoidCallback? reloadAction(WidgetTester tester) => tester
@@ -324,4 +333,68 @@ void main() {
       '/api/v1/libraries/2/series',
     ]);
   });
+
+  testWidgets(
+    'a library shows the share of its books read as a bar, a check once all are',
+    (tester) async {
+      final server = bookServer(
+        (request) async => switch (request.url.path) {
+          '/api/v1/libraries' => libraries(
+            ['Manga', 'Comics', 'Fresh', 'Empty'],
+            bookCounts: {'Manga': 10, 'Comics': 4, 'Fresh': 3},
+            finishedCounts: {'Manga': 4, 'Comics': 4},
+          ),
+          _ => notFound(),
+        },
+      );
+      await start(tester, server);
+      await tester.pumpAndSettle();
+
+      Finder onCard(String name, Finder finder) =>
+          find.descendant(of: cardNamed(name), matching: finder);
+      final bar = find.byType(LinearProgressIndicator);
+      final check = find.byIcon(Icons.check_circle);
+      expect(
+        tester.widget<LinearProgressIndicator>(onCard('Manga', bar)).value,
+        0.4,
+      );
+      expect(onCard('Comics', check), findsOneWidget);
+      expect(onCard('Comics', bar), findsNothing);
+      for (final unread in ['Fresh', 'Empty']) {
+        expect(onCard(unread, bar), findsNothing, reason: unread);
+        expect(onCard(unread, check), findsNothing, reason: unread);
+      }
+    },
+  );
+
+  testWidgets(
+    'Continue reading opens the started books; back, the libraries load again',
+    (tester) async {
+      final server = bookServer(
+        (request) async => switch (request.url.path) {
+          '/api/v1/libraries' => libraries(['Manga']),
+          '/api/v1/books/started' => jsonAnswer([]),
+          _ => notFound(),
+        },
+      );
+      int loads(String path) =>
+          requestedPaths(server).where((asked) => asked == path).length;
+      await start(tester, server);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip(english.text('home.continue_reading')));
+      await tester.pumpAndSettle();
+      expect(
+        find.widgetWithText(AppBar, english.text('home.continue_reading')),
+        findsOneWidget,
+      );
+      expect(loads('/api/v1/books/started'), 1);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Manga'), findsOneWidget);
+      expect(loads('/api/v1/libraries'), 2);
+    },
+  );
 }

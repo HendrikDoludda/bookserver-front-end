@@ -183,6 +183,28 @@ void main() {
     },
   );
 
+  testWidgets(
+    'back from a library chosen in the sidebar, the libraries load again once',
+    (tester) async {
+      final server = twoLibraries();
+      await openManga(tester, server);
+      await tester.tap(sidebarButton());
+      await tester.pumpAndSettle();
+      await tester.tap(entry('Comics'));
+      await tester.pumpAndSettle();
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(requestedPaths(server), [
+        '/api/v1/libraries',
+        '/api/v1/libraries/1/series',
+        '/api/v1/libraries/2/series',
+        '/api/v1/libraries',
+      ]);
+    },
+  );
+
   testWidgets('choosing the library being browsed only closes the list', (
     tester,
   ) async {

@@ -7,6 +7,7 @@ import 'package:bookserver/ui/cover.dart';
 import 'package:bookserver/ui/cover_grid.dart';
 import 'package:bookserver/ui/library_sidebar.dart';
 import 'package:bookserver/ui/list_screen.dart';
+import 'package:bookserver/ui/mark_read_menu.dart';
 import 'package:bookserver/ui/readers/open_book.dart';
 import 'package:bookserver/ui/user_menu.dart';
 import 'package:material_ui/material_ui.dart';
@@ -49,57 +50,15 @@ class _BooksScreenState extends State<BooksScreen> {
     super.dispose();
   }
 
-  Future<void> _read(Book book) async {
-    await openBook(context, widget.session, book);
+  void _reload() {
     if (mounted) {
       _reloads.value++;
     }
   }
 
-  /// Offers to mark [book] read, or unread once it is, in a menu over its card.
-  Future<void> _offerMark(BuildContext cardContext, Book book) async {
-    final card = cardContext.findRenderObject()! as RenderBox;
-    final overlay =
-        Overlay.of(cardContext).context.findRenderObject()! as RenderBox;
-    final read = !book.progress.finished;
-    final chosen = await showMenu<bool>(
-      context: context,
-      position: RelativeRect.fromRect(
-        card.localToGlobal(Offset.zero, ancestor: overlay) & card.size,
-        Offset.zero & overlay.size,
-      ),
-      items: [
-        PopupMenuItem(
-          value: read,
-          child: Text(
-            context.t(read ? 'browse.mark_read' : 'browse.mark_unread'),
-          ),
-        ),
-      ],
-    );
-    if (chosen != null && mounted) {
-      await _mark(book, chosen);
-    }
-  }
-
-  Future<void> _mark(Book book, bool finished) async {
-    // Taken before the wait: the screen may be gone by the time the save fails.
-    final messenger = ScaffoldMessenger.of(context);
-    final notSaved = context.t('browse.mark_not_saved');
-    try {
-      await widget.session.authorized(
-        (api, sessionToken) =>
-            BrowseApi(api)
-                .saveProgress(book.id, sessionToken, finished: finished),
-      );
-      if (mounted) {
-        _reloads.value++;
-      }
-    } on Exception {
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(notSaved)));
-    }
+  Future<void> _read(Book book) async {
+    await openBook(context, widget.session, book);
+    _reload();
   }
 
   @override
@@ -140,7 +99,8 @@ class _BooksScreenState extends State<BooksScreen> {
               progress: readShare(book.progress),
               finished: book.progress.finished,
               onTap: () => _read(book),
-              onLongPress: () => _offerMark(cardContext, book),
+              onLongPress: () =>
+                  offerMark(cardContext, session, book, onMarked: _reload),
             ),
           );
         },

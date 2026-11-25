@@ -94,16 +94,13 @@ class _SeriesScreenState extends State<SeriesScreen> {
         withDetail: true,
         itemBuilder: (context, index) {
           final one = series[index];
-          final allRead =
-              one.bookCount > 0 && one.finishedCount >= one.bookCount;
+          final read = finishedShare(one.finishedCount, one.bookCount);
           return CoverCard(
             cover: Cover(session: session, kind: CoverKind.series, id: one.id),
             name: one.name,
             detail: context.plural('browse.book_count', one.bookCount),
-            progress: one.finishedCount > 0 && !allRead
-                ? one.finishedCount / one.bookCount
-                : null,
-            finished: allRead,
+            progress: read.progress,
+            finished: read.finished,
             onTap: () => _open(one),
           );
         },

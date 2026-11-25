@@ -377,6 +377,64 @@ void main() {
     expect(const Progress(place: (position: 3, total: 10)).openAt(0), 0);
   });
 
+  test("libraries carry their books and the user's finished ones", () async {
+    final server = FakeServer(
+      (_) async => jsonAnswer([
+        {
+          'id': 1,
+          'name': 'Manga',
+          'series_count': 2,
+          'book_count': 12,
+          'finished_count': 5,
+        },
+        {'id': 2, 'name': 'Comics', 'series_count': 1},
+      ]),
+    );
+
+    final libraries = await apiFor(server).libraries('session-1');
+
+    expect(
+      [
+        for (final library in libraries)
+          (library.bookCount, library.finishedCount),
+      ],
+      [(12, 5), (0, 0)],
+      reason: 'a library without the counts has none',
+    );
+  });
+
+  test('lists the started books, each with its series name', () async {
+    final server = FakeServer(
+      (_) async => jsonAnswer([
+        {
+          ...bookJson(id: 8, volume: 3),
+          'series_name': 'Monster',
+          'progress': {'position': 4, 'total': 10, 'finished': false},
+        },
+        {...bookJson(id: 9), 'series_name': null},
+      ]),
+    );
+
+    final books = await apiFor(server).startedBooks('session-1');
+
+    expect(
+      [
+        for (final book in books)
+          (book.id, book.seriesName, book.progress.place),
+      ],
+      [(8, 'Monster', (position: 4, total: 10)), (9, null, null)],
+    );
+    expectGet(server, '/api/v1/books/started');
+  });
+
+  test("a series' books carry no series name", () async {
+    final server = FakeServer((_) async => jsonAnswer([bookJson(id: 7)]));
+
+    final books = await apiFor(server).booksOf(2, 'session-1');
+
+    expect(books.single.seriesName, isNull);
+  });
+
   test('names the cover of a book, a series and a library', () {
     expect(coverPath(CoverKind.book, 1), '/api/v1/covers/book/1');
     expect(coverPath(CoverKind.series, 2), '/api/v1/covers/series/2');
