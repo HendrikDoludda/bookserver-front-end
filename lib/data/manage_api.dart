@@ -190,6 +190,20 @@ class ManageApi {
     await _client.deleteJson('/api/v1/series/$seriesId', bearer: sessionToken);
   }
 
+  /// Merges series [seriesId] into series [intoId]: its books, libraries and reading modes move
+  /// there, and it is deleted. Merging a series into itself is refused with `invalid_request`.
+  Future<void> mergeSeries(
+    String sessionToken,
+    int intoId,
+    int seriesId,
+  ) async {
+    await _client.postJson(
+      '/api/v1/series/$intoId/merges',
+      body: {'series_id': seriesId},
+      bearer: sessionToken,
+    );
+  }
+
   /// The series shows the cover of [bookId], one of its books; one without a cover is refused.
   Future<void> chooseSeriesCover(
     String sessionToken,

@@ -45,18 +45,30 @@ class _ManageSeriesScreenState extends State<ManageSeriesScreen> {
       builder: (context, series) => ListView(
         children: [
           for (final one in series)
-            ListTile(
-              title: Text(one.name),
-              subtitle: Text(
-                context.plural('browse.book_count', one.bookCount),
-              ),
-              trailing: one.libraryIds.isEmpty
-                  ? Text(context.t('manage.no_library'))
-                  : const Icon(Icons.chevron_right),
-              onTap: () => _open(one),
-            ),
+            SeriesTile(series: one, onTap: () => _open(one)),
         ],
       ),
+    );
+  }
+}
+
+/// A series as Manage's lists show it: its name, its number of books, and whether no library
+/// holds it.
+class SeriesTile extends StatelessWidget {
+  const SeriesTile({super.key, required this.series, required this.onTap});
+
+  final ManagedSeries series;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      title: Text(series.name),
+      subtitle: Text(context.plural('browse.book_count', series.bookCount)),
+      trailing: series.libraryIds.isEmpty
+          ? Text(context.t('manage.no_library'))
+          : const Icon(Icons.chevron_right),
+      onTap: onTap,
     );
   }
 }

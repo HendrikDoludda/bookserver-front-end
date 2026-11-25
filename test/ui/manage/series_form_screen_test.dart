@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../support/cover_cache.dart';
+import '../../support/fake_server.dart';
 import '../../support/manage_server.dart';
 import '../../support/screens.dart';
 
@@ -282,6 +283,186 @@ void main() {
       expect(isCached(manga), isFalse, reason: 'it may fall back to Berserk');
       expect(isCached(monster), isTrue);
       expect(isCached(other), isTrue);
+    },
+  );
+
+  Future<void> openMergeChoice(WidgetTester tester) async {
+    await tester.tap(
+      find.widgetWithText(OutlinedButton, english.text('manage.merge_series')),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  /// Opens the choice of series and picks [name], which asks before merging.
+  Future<void> chooseMergeTarget(WidgetTester tester, String name) async {
+    await openMergeChoice(tester);
+    await tester.tap(find.widgetWithText(ListTile, name));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> confirmMerge(WidgetTester tester) async {
+    await tester.tap(
+      find.widgetWithText(FilledButton, english.text('manage.merge')),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  ManageServer hellboyServer() => ManageServer(
+    libraries: [libraryJson(1, 'Comics'), libraryJson(2, 'Other')],
+    series: [
+      seriesJson(4, 'Hellboy BPRD', libraryIds: [1]),
+      seriesJson(5, 'hellboybprd', bookCount: 2, libraryIds: [2]),
+      seriesJson(6, 'Monster'),
+    ],
+  );
+
+  testWidgets('the series to merge into is picked from every other one', (
+    tester,
+  ) async {
+    final server = hellboyServer();
+    await openSeries(tester, server, 'hellboybprd');
+
+    await openMergeChoice(tester);
+
+    expect(
+      find.text(english.text('manage.choose_merge_target')),
+      findsOneWidget,
+    );
+    expect(find.widgetWithText(ListTile, 'Hellboy BPRD'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, 'Monster'), findsOneWidget);
+    expect(
+      find.widgetWithText(ListTile, 'hellboybprd'),
+      findsNothing,
+      reason: 'not into itself',
+    );
+  });
+
+  testWidgets('with no other series, the choice says so', (tester) async {
+    final server = ManageServer(series: [seriesJson(4, 'Berserk')]);
+    await openSeries(tester, server, 'Berserk');
+
+    await openMergeChoice(tester);
+
+    expect(find.text(english.text('manage.no_merge_target')), findsOneWidget);
+  });
+
+  testWidgets(
+    'a merge names the series it goes into and is sent once confirmed',
+    (tester) async {
+      final server = hellboyServer();
+      await openSeries(tester, server, 'hellboybprd');
+
+      await chooseMergeTarget(tester, 'Hellboy BPRD');
+      expect(
+        find.text(
+          english.text('manage.merge_series_question', {
+            'name': 'Hellboy BPRD',
+          }),
+        ),
+        findsOneWidget,
+      );
+      expect(server.changes, isEmpty, reason: 'nothing goes before Merge');
+      await confirmMerge(tester);
+
+      expect(server.changes, ['POST /api/v1/series/4/merges {"series_id":5}']);
+      // Back on the list, which loaded again without the merged series.
+      expect(find.text('hellboybprd'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.widgetWithText(ListTile, 'Hellboy BPRD'),
+          matching: find.text(english.plural('browse.book_count', 3)),
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('a cancelled merge sends nothing and leaves the form open', (
+    tester,
+  ) async {
+    final server = hellboyServer();
+    await openSeries(tester, server, 'hellboybprd');
+
+    await chooseMergeTarget(tester, 'Hellboy BPRD');
+    await tester.tap(
+      find.widgetWithText(TextButton, english.text('manage.cancel')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(server.changes, isEmpty);
+    expect(find.text(english.text('manage.edit_series')), findsOneWidget);
+  });
+
+  testWidgets('a refused merge leaves the form open and says why', (
+    tester,
+  ) async {
+    final server = hellboyServer()
+      ..refuse = (request) => request.method == 'POST'
+          ? jsonAnswer({'error': 'not_found'}, 404)
+          : null;
+    await openSeries(tester, server, 'hellboybprd');
+
+    await chooseMergeTarget(tester, 'Hellboy BPRD');
+    await confirmMerge(tester);
+
+    expect(find.text(english.text('errors.not_found')), findsOneWidget);
+    expect(find.text(english.text('manage.edit_series')), findsOneWidget);
+  });
+
+  testWidgets(
+    'merging drops the cached covers of both series and of their libraries, and no others',
+    (tester) async {
+      final server = ManageServer(
+        libraries: [
+          libraryJson(1, 'Comics'),
+          libraryJson(2, 'Other'),
+          libraryJson(3, 'Untouched'),
+        ],
+        series: [
+          seriesJson(4, 'Hellboy BPRD', libraryIds: [1]),
+          seriesJson(5, 'hellboybprd', libraryIds: [2]),
+          seriesJson(6, 'Monster', libraryIds: [3]),
+        ],
+        covers: {
+          '/api/v1/covers/series/4',
+          '/api/v1/covers/series/5',
+          '/api/v1/covers/series/6',
+          '/api/v1/covers/library/1',
+          '/api/v1/covers/library/2',
+          '/api/v1/covers/library/3',
+        },
+      );
+      final session = await signedInSession(server.fake);
+      final [kept, merged, monster, comics, other, untouched] = (await tester
+          .runAsync(
+            () => cachedCovers(session, [
+              (CoverKind.series, 4),
+              (CoverKind.series, 5),
+              (CoverKind.series, 6),
+              (CoverKind.library, 1),
+              (CoverKind.library, 2),
+              (CoverKind.library, 3),
+            ]),
+          ))!;
+      expect(
+        [kept, merged, monster, comics, other, untouched].every(isCached),
+        isTrue,
+      );
+      await openSeries(tester, server, 'hellboybprd');
+
+      await chooseMergeTarget(tester, 'Hellboy BPRD');
+      await confirmMerge(tester);
+
+      expect(isCached(kept), isFalse, reason: 'it may take the merged cover');
+      expect(isCached(merged), isFalse);
+      expect(
+        isCached(comics),
+        isFalse,
+        reason: 'it may fall back to the kept one',
+      );
+      expect(isCached(other), isFalse);
+      expect(isCached(monster), isTrue);
+      expect(isCached(untouched), isTrue);
     },
   );
 }

@@ -225,6 +225,38 @@ void main() {
     expect(onlyRequest(server).url.path, '/api/v1/series/4');
   });
 
+  test(
+    'mergeSeries posts the merged series to the kept one\'s merges',
+    () async {
+      final server = FakeServer(
+        (_) async => jsonAnswer(series()..remove('library_ids')),
+      );
+
+      await apiFor(server).mergeSeries('session-1', 4, 7);
+
+      final request = onlyRequest(server);
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/v1/series/4/merges');
+      expect(jsonDecode(request.body), {'series_id': 7});
+      expect(request.headers['authorization'], 'Bearer session-1');
+    },
+  );
+
+  test('merging passes the server\'s refusal on', () async {
+    final server = FakeServer(
+      (_) async => jsonAnswer({'error': 'invalid_request'}, 400),
+    );
+
+    await expectLater(
+      apiFor(server).mergeSeries('session-1', 4, 4),
+      throwsA(
+        isA<ApiException>()
+            .having((e) => e.status, 'status', 400)
+            .having((e) => e.key, 'key', 'invalid_request'),
+      ),
+    );
+  });
+
   test('deleteLibrary sends a DELETE for the library', () async {
     final server = FakeServer((_) async => http.Response('', 204));
 

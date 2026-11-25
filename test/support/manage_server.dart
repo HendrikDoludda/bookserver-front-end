@@ -105,6 +105,7 @@ class ManageServer {
       ('GET', ['series']) => jsonAnswer(series),
       ('PATCH', ['series', final id]) => _change(_series(id), body),
       ('DELETE', ['series', final id]) => _deleteSeries(id),
+      ('POST', ['series', final id, 'merges']) => _mergeSeries(id, body),
       ('GET', ['series', final id, 'books']) => jsonAnswer(
         books[int.parse(id)] ?? const [],
       ),
@@ -234,6 +235,29 @@ class ManageServer {
     }
     series.remove(one);
     return http.Response('', 204);
+  }
+
+  /// Merges the series `series_id` names into series [id] as the server does: its books count
+  /// and its libraries go to [id], and it is removed. Answers [id] as `PATCH` does.
+  http.Response _mergeSeries(String id, Map<String, Object?> body) {
+    if ('${body['series_id']}' == id) {
+      return jsonAnswer({'error': 'invalid_request'}, 400);
+    }
+    final kept = _series(id);
+    final merged = _series('${body['series_id']}');
+    if (kept == null || merged == null) {
+      return notFound();
+    }
+    kept['book_count'] =
+        (kept['book_count']! as int) + (merged['book_count']! as int);
+    final libraryIds = kept['library_ids']! as List<Object?>;
+    for (final library in merged['library_ids']! as List<Object?>) {
+      if (!libraryIds.contains(library)) {
+        libraryIds.add(library);
+      }
+    }
+    series.remove(merged);
+    return jsonAnswer({...kept}..remove('library_ids'));
   }
 }
 

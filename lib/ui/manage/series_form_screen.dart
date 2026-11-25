@@ -8,12 +8,14 @@ import 'package:bookserver/ui/cover.dart';
 import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/manage/confirm_delete.dart';
 import 'package:bookserver/ui/manage/cover_choice_screen.dart';
+import 'package:bookserver/ui/manage/series_choice_screen.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// A series' name, description, release years and cover. Saving or deleting closes the form with
-/// `true`; a series with books can't be deleted, and the form says so.
+/// A series' name, description, release years and cover. Saving, merging it into another series
+/// or deleting it closes the form with `true`; a series with books can't be deleted, and the form
+/// says so.
 class SeriesFormScreen extends StatefulWidget {
   const SeriesFormScreen({
     super.key,
@@ -130,11 +132,40 @@ class _SeriesFormScreenState extends State<SeriesFormScreen> {
     }
   }
 
+  /// Picks the series to merge this one into, asks, and merges.
+  Future<void> _merge() async {
+    final into = await Navigator.of(context).push<ManagedSeries>(
+      MaterialPageRoute(
+        builder: (_) => SeriesChoiceScreen(
+          session: widget.session,
+          except: widget.series.id,
+        ),
+      ),
+    );
+    if (into == null || !mounted) {
+      return;
+    }
+    final confirmed = await confirmDelete(
+      context,
+      titleKey: 'manage.merge_series_question',
+      explanationKey: 'manage.merge_series_explanation',
+      confirmKey: 'manage.merge',
+      values: {'name': into.name},
+    );
+    if (confirmed && mounted) {
+      await _run([
+        (api, token) =>
+            ManageApi(api).mergeSeries(token, into.id, widget.series.id),
+      ], into: into);
+    }
+  }
+
   /// Runs [calls] in turn, each in its own [SessionController.authorized]; closes the form when
-  /// all succeed, else says why.
+  /// all succeed, else says why. [into] is the series a merge goes into.
   Future<void> _run(
-    List<Future<void> Function(ApiClient api, String token)> calls,
-  ) async {
+    List<Future<void> Function(ApiClient api, String token)> calls, {
+    ManagedSeries? into,
+  }) async {
     setState(() {
       _busy = true;
       _errorKey = null;
@@ -146,7 +177,7 @@ class _SeriesFormScreenState extends State<SeriesFormScreen> {
         }
       } finally {
         // Also after a failure: a call before it may have changed what a cover shows.
-        await _forgetCovers();
+        await _forgetCovers(into);
       }
       if (mounted) {
         Navigator.of(context).pop(true);
@@ -165,10 +196,17 @@ class _SeriesFormScreenState extends State<SeriesFormScreen> {
   }
 
   /// Drops the covers this form can change from the image cache: the series' own, and its
-  /// libraries', which fall back to their first series by name.
-  Future<void> _forgetCovers() => Future.wait([
-    Cover.forget(widget.session, CoverKind.series, [widget.series.id]),
-    Cover.forget(widget.session, CoverKind.library, widget.series.libraryIds),
+  /// libraries', which fall back to their first series by name — for a merge, those of the series
+  /// [into] too, which may take this one's cover and books.
+  Future<void> _forgetCovers([ManagedSeries? into]) => Future.wait([
+    Cover.forget(widget.session, CoverKind.series, [
+      widget.series.id,
+      ?into?.id,
+    ]),
+    Cover.forget(widget.session, CoverKind.library, {
+      ...widget.series.libraryIds,
+      ...?into?.libraryIds,
+    }),
   ]);
 
   @override
@@ -247,6 +285,11 @@ class _SeriesFormScreenState extends State<SeriesFormScreen> {
                     onTap: _busy ? null : _chooseCover,
                   ),
                   const SizedBox(height: Spacing.large),
+                  OutlinedButton(
+                    onPressed: _busy ? null : _merge,
+                    child: Text(context.t('manage.merge_series')),
+                  ),
+                  const SizedBox(height: Spacing.medium),
                   OutlinedButton(
                     onPressed: _busy ? null : _delete,
                     child: Text(context.t('manage.delete')),
