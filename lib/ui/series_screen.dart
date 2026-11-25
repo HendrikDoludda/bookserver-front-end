@@ -11,8 +11,9 @@ import 'package:bookserver/ui/list_screen.dart';
 import 'package:bookserver/ui/user_menu.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// A library's series, by name, with the [libraries] to switch to beside them.
-class SeriesScreen extends StatelessWidget {
+/// A library's series, by name, with the [libraries] to switch to beside them. Each shows how
+/// many of its books the user has read.
+class SeriesScreen extends StatefulWidget {
   const SeriesScreen({
     super.key,
     required this.session,
@@ -31,46 +32,79 @@ class SeriesScreen extends StatelessWidget {
   final List<Library> libraries;
 
   @override
+  State<SeriesScreen> createState() => _SeriesScreenState();
+}
+
+class _SeriesScreenState extends State<SeriesScreen> {
+  /// Loads the series again, keeping them on screen: a series' books were open.
+  final _reloads = ValueNotifier(0);
+
+  @override
+  void dispose() {
+    _reloads.dispose();
+    super.dispose();
+  }
+
+  Future<void> _open(Series series) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BooksScreen(
+          session: widget.session,
+          catalogs: widget.catalogs,
+          account: widget.account,
+          library: widget.library,
+          libraries: widget.libraries,
+          series: series,
+        ),
+      ),
+    );
+    if (mounted) {
+      _reloads.value++;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final session = widget.session;
     return ListScreen<Series>(
-      title: library.name,
+      title: widget.library.name,
       emptyKey: 'browse.series_empty',
       reloadKey: 'browse.reload',
+      reloadOn: _reloads,
       load: () => session.authorized(
         (api, sessionToken) =>
-            BrowseApi(api).seriesOf(library.id, sessionToken),
+            BrowseApi(api).seriesOf(widget.library.id, sessionToken),
       ),
       actions: [
-        UserMenu(session: session, catalogs: catalogs, account: account),
+        UserMenu(
+          session: session,
+          catalogs: widget.catalogs,
+          account: widget.account,
+        ),
       ],
       sidebar: LibrarySidebar(
         session: session,
-        catalogs: catalogs,
-        account: account,
-        libraries: libraries,
-        current: library,
+        catalogs: widget.catalogs,
+        account: widget.account,
+        libraries: widget.libraries,
+        current: widget.library,
       ),
       builder: (context, series) => CoverGrid(
         itemCount: series.length,
         withDetail: true,
         itemBuilder: (context, index) {
           final one = series[index];
+          final allRead =
+              one.bookCount > 0 && one.finishedCount >= one.bookCount;
           return CoverCard(
             cover: Cover(session: session, kind: CoverKind.series, id: one.id),
             name: one.name,
             detail: context.plural('browse.book_count', one.bookCount),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => BooksScreen(
-                  session: session,
-                  catalogs: catalogs,
-                  account: account,
-                  library: library,
-                  libraries: libraries,
-                  series: one,
-                ),
-              ),
-            ),
+            progress: one.finishedCount > 0 && !allRead
+                ? one.finishedCount / one.bookCount
+                : null,
+            finished: allRead,
+            onTap: () => _open(one),
           );
         },
       ),

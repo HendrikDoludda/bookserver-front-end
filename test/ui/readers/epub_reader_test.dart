@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -226,8 +227,10 @@ void main() {
     await runUntil(
       tester,
       shown,
-      first: () async =>
-          openBook(tester.element(find.byType(HomeScreen)), session, book),
+      // Done once the reader closes, which no test here waits for.
+      first: () async => unawaited(
+        openBook(tester.element(find.byType(HomeScreen)), session, book),
+      ),
     );
   }
 

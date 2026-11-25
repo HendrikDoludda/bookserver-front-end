@@ -22,10 +22,11 @@ void main() {
   setUp(() => PaintingBinding.instance.imageCache.clear());
 
   /// Series exactly as `GET /api/v1/libraries/{id}/series` sends them, each with one book unless
-  /// [bookCounts] names its number.
+  /// [bookCounts] names its number, and none finished unless [finishedCounts] names that.
   http.Response series(
     Map<int, String> names, {
     Map<int, int> bookCounts = const {},
+    Map<int, int> finishedCounts = const {},
   }) => jsonAnswer([
     for (final MapEntry(key: id, value: name) in names.entries)
       {
@@ -36,6 +37,7 @@ void main() {
         'start_release_year': null,
         'end_release_year': null,
         'book_count': bookCounts[id] ?? 1,
+        'finished_count': finishedCounts[id] ?? 0,
       },
   ]);
 
@@ -240,5 +242,64 @@ void main() {
     expect(find.byType(BooksScreen), findsOneWidget);
     expect(find.widgetWithText(AppBar, 'beta'), findsOneWidget);
     expect(requestedPaths(server).last, '/api/v1/series/5/books');
+  });
+
+  testWidgets(
+    'a series shows the share of its books read as a bar, a check once all are',
+    (tester) async {
+      final server = mangaServer(
+        () async => series(
+          {4: 'alpha', 5: 'beta', 6: 'gamma', 7: 'empty'},
+          bookCounts: {4: 4, 5: 2, 6: 3, 7: 0},
+          finishedCounts: {4: 1, 5: 2},
+        ),
+      );
+      await openManga(tester, server);
+      await tester.pumpAndSettle();
+
+      Finder onCard(String name, Finder finder) =>
+          find.descendant(of: cardNamed(name), matching: finder);
+      final bar = find.byType(LinearProgressIndicator);
+      final check = find.byIcon(Icons.check_circle);
+      expect(
+        tester.widget<LinearProgressIndicator>(onCard('alpha', bar)).value,
+        0.25,
+      );
+      expect(onCard('alpha', check), findsNothing);
+      expect(onCard('beta', check), findsOneWidget);
+      expect(onCard('beta', bar), findsNothing);
+      for (final unread in ['gamma', 'empty']) {
+        expect(onCard(unread, bar), findsNothing, reason: unread);
+        expect(onCard(unread, check), findsNothing, reason: unread);
+      }
+    },
+  );
+
+  testWidgets('the series load again once their books close', (tester) async {
+    final server = bookServer(
+      (request) async => switch (request.url.path) {
+        '/api/v1/libraries' => jsonAnswer([
+          {'id': 3, 'name': 'Manga', 'series_count': 1},
+        ]),
+        '/api/v1/libraries/3/series' => series({4: 'alpha'}),
+        '/api/v1/series/4/books' => jsonAnswer([]),
+        _ => notFound(),
+      },
+    );
+    int seriesLoads() =>
+        requestedPaths(server)
+            .where((path) => path == '/api/v1/libraries/3/series')
+            .length;
+    await openManga(tester, server);
+    await tester.pumpAndSettle();
+    await tester.tap(cardNamed('alpha'));
+    await tester.pumpAndSettle();
+    expect(seriesLoads(), 1);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SeriesScreen), findsOneWidget);
+    expect(seriesLoads(), 2);
   });
 }

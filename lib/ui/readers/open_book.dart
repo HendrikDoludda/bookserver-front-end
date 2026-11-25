@@ -6,8 +6,13 @@ import 'package:bookserver/ui/readers/page_reader.dart';
 import 'package:bookserver/ui/readers/pdf_reader.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Opens [book] in the reader for its format, or says the app can't show it yet.
-void openBook(BuildContext context, SessionController session, Book book) {
+/// Opens [book] in the reader for its format, or says the app can't show it yet; done once the
+/// reader closes.
+Future<void> openBook(
+  BuildContext context,
+  SessionController session,
+  Book book,
+) async {
   final Widget reader;
   switch (book.format) {
     case BookFormat.cbz || BookFormat.imageComic:
@@ -24,5 +29,6 @@ void openBook(BuildContext context, SessionController session, Book book) {
         );
       return;
   }
-  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => reader));
+  await Navigator.of(context)
+      .push(MaterialPageRoute<void>(builder: (_) => reader));
 }

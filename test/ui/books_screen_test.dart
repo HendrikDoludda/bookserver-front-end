@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/books_screen.dart';
 import 'package:bookserver/ui/cover_grid.dart';
 import 'package:bookserver/ui/readers/page_reader.dart';
 import 'package:bookserver/ui/settings_screen.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
@@ -22,13 +24,19 @@ void main() {
   // Every test asks the same server for the same covers: none may come from a test before.
   setUp(() => PaintingBinding.instance.imageCache.clear());
 
-  /// A book exactly as `GET /api/v1/series/{id}/books` sends one.
+  /// A book exactly as `GET /api/v1/series/{id}/books` sends one, with the user's [progress] in
+  /// it.
   Map<String, Object?> bookJson(
     int id, {
     String title = 'Alpha',
     int? volume,
     num? chapter,
     String format = 'cbz',
+    Map<String, Object?> progress = const {
+      'position': null,
+      'total': null,
+      'finished': false,
+    },
   }) => {
     'id': id,
     'title': title,
@@ -44,11 +52,15 @@ void main() {
     'page_number': null,
     'last_modified': 1767225600,
     'file_size': 1024,
+    'progress': progress,
   };
 
   /// A server with the library "Manga" (id 3), its one series "alpha" (id 4), and that series'
-  /// books from [answer]; nothing has a cover.
-  FakeServer alphaServer(Future<http.Response> Function() answer) => bookServer(
+  /// books from [answer]; a book marked read or unread goes to [mark]. Nothing has a cover.
+  FakeServer alphaServer(
+    Future<http.Response> Function() answer, {
+    Future<http.Response> Function(http.Request request)? mark,
+  }) => bookServer(
     (request) => switch (request.url.path) {
       '/api/v1/libraries' => Future.value(
         jsonAnswer([
@@ -61,9 +73,23 @@ void main() {
         ]),
       ),
       '/api/v1/series/4/books' => answer(),
+      final path when mark != null && path.endsWith('/progress') => mark(
+        request,
+      ),
       _ => Future.value(notFound()),
     },
   );
+
+  String volume(int number) =>
+      english.text('browse.volume', {'number': number});
+
+  /// The books list's loads [server] got.
+  int bookLoads(FakeServer server) => server.requests
+      .where((request) => request.url.path == '/api/v1/series/4/books')
+      .length;
+
+  Finder onCard(String name, Finder finder) =>
+      find.descendant(of: cardNamed(name), matching: finder);
 
   /// Starts the app signed in, opens the library "Manga" and taps its series "alpha".
   Future<void> openAlpha(
@@ -292,5 +318,157 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(PageReader), findsOneWidget);
     expect(find.widgetWithText(AppBar, 'Alpha'), findsOneWidget);
+  });
+
+  testWidgets('a started book shows a bar, a finished one a check', (
+    tester,
+  ) async {
+    await openAlpha(
+      tester,
+      alphaServer(
+        () async => jsonAnswer([
+          bookJson(
+            7,
+            volume: 1,
+            progress: {'position': 3, 'total': 10, 'finished': false},
+          ),
+          bookJson(
+            8,
+            volume: 2,
+            progress: {'position': 9, 'total': 10, 'finished': true},
+          ),
+          bookJson(9, volume: 3),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final bar = find.byType(LinearProgressIndicator);
+    final check = find.byIcon(Icons.check_circle);
+    expect(
+      tester.widget<LinearProgressIndicator>(onCard(volume(1), bar)).value,
+      0.4,
+      reason: 'page 4 of 10 on screen',
+    );
+    expect(onCard(volume(1), check), findsNothing);
+    expect(onCard(volume(2), check), findsOneWidget);
+    expect(onCard(volume(2), bar), findsNothing);
+    expect(onCard(volume(3), bar), findsNothing);
+    expect(onCard(volume(3), check), findsNothing);
+  });
+
+  testWidgets(
+    'a long press marks a book read, and the list shows it, kept on screen',
+    (tester) async {
+      var finished = false;
+      final marked = Completer<http.Response>();
+      final marks = <http.Request>[];
+      final server = alphaServer(
+        () async => jsonAnswer([
+          bookJson(
+            7,
+            volume: 1,
+            progress: {'position': 3, 'total': 10, 'finished': finished},
+          ),
+        ]),
+        mark: (request) {
+          marks.add(request);
+          return marked.future;
+        },
+      );
+      await openAlpha(tester, server);
+      await tester.pumpAndSettle();
+
+      await tester.longPress(cardNamed(volume(1)));
+      await tester.pumpAndSettle();
+      expect(find.text(english.text('browse.mark_unread')), findsNothing);
+      await tester.tap(find.text(english.text('browse.mark_read')));
+      await tester.pumpAndSettle();
+
+      final request = marks.single;
+      expect(request.method, 'PATCH');
+      expect(request.url.path, '/api/v1/books/7/progress');
+      expect(jsonDecode(request.body), {'finished': true});
+      finished = true;
+      marked.complete(
+        jsonAnswer({'position': 3, 'total': 10, 'finished': true}),
+      );
+      await tester.pump();
+      expect(cardNamed(volume(1)), findsOneWidget, reason: 'while it reloads');
+      await tester.pumpAndSettle();
+
+      expect(bookLoads(server), 2);
+      expect(
+        onCard(volume(1), find.byIcon(Icons.check_circle)),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('a finished book offers to mark it unread', (tester) async {
+    final marks = <Object?>[];
+    final server = alphaServer(
+      () async => jsonAnswer([
+        bookJson(
+          7,
+          volume: 1,
+          progress: {'position': 9, 'total': 10, 'finished': true},
+        ),
+      ]),
+      mark: (request) async {
+        marks.add(jsonDecode(request.body));
+        return jsonAnswer({'position': 9, 'total': 10, 'finished': false});
+      },
+    );
+    await openAlpha(tester, server);
+    await tester.pumpAndSettle();
+
+    await tester.tap(cardNamed(volume(1)), buttons: kSecondaryButton);
+    await tester.pumpAndSettle();
+    expect(find.text(english.text('browse.mark_read')), findsNothing);
+    await tester.tap(find.text(english.text('browse.mark_unread')));
+    await tester.pumpAndSettle();
+
+    expect(marks, [
+      {'finished': false},
+    ]);
+  });
+
+  testWidgets('a mark the server refuses says so, and loads nothing again', (
+    tester,
+  ) async {
+    final server = alphaServer(
+      () async => jsonAnswer([bookJson(7, volume: 1)]),
+      mark: (_) async => jsonAnswer({'error': 'internal_error'}, 500),
+    );
+    await openAlpha(tester, server);
+    await tester.pumpAndSettle();
+
+    await tester.longPress(cardNamed(volume(1)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(english.text('browse.mark_read')));
+    await tester.pumpAndSettle();
+
+    expect(find.text(english.text('browse.mark_not_saved')), findsOneWidget);
+    expect(bookLoads(server), 1);
+  });
+
+  testWidgets('the books load again when the reader closes', (tester) async {
+    final server = alphaServer(
+      () async => jsonAnswer([bookJson(7, volume: 1)]),
+    );
+    await openAlpha(tester, server);
+    await tester.pumpAndSettle();
+
+    await tester.tap(cardNamed(volume(1)));
+    await tester.pumpAndSettle();
+    expect(find.byType(PageReader), findsOneWidget);
+    expect(bookLoads(server), 1);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BooksScreen), findsOneWidget);
+    expect(bookLoads(server), 2);
   });
 }

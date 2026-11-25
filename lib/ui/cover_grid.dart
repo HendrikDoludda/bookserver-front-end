@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/theme.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -60,7 +61,8 @@ class CoverGrid extends StatelessWidget {
 }
 
 /// A cover with its name under it, and a detail under that if given, tapped as one button: a
-/// library, a series or a book.
+/// library, a series or a book. The cover shows how far the user has read along its bottom edge,
+/// or a check once they finished.
 class CoverCard extends StatelessWidget {
   const CoverCard({
     super.key,
@@ -68,6 +70,9 @@ class CoverCard extends StatelessWidget {
     required this.name,
     required this.onTap,
     this.detail,
+    this.progress,
+    this.finished = false,
+    this.onLongPress,
   });
 
   /// The cover, as wide as the card.
@@ -81,9 +86,20 @@ class CoverCard extends StatelessWidget {
   /// `withDetail`.
   final String? detail;
 
+  /// How far the user has read, from 0 to 1; null shows no bar.
+  final double? progress;
+
+  /// Whether the user finished it, which shows a check in place of the bar.
+  final bool finished;
+
+  /// What a long press or a right click does, such as a menu of the card's actions.
+  final VoidCallback? onLongPress;
+
   @override
   Widget build(BuildContext context) {
     final detail = this.detail;
+    final progress = this.progress;
+    final colors = Theme.of(context).colorScheme;
     return MergeSemantics(
       child: Semantics(
         button: true,
@@ -95,7 +111,34 @@ class CoverCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               spacing: Spacing.small,
               children: [
-                cover,
+                Stack(
+                  children: [
+                    cover,
+                    if (finished)
+                      Positioned(
+                        top: Spacing.small,
+                        right: Spacing.small,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: colors.surface,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.check_circle,
+                            color: colors.primary,
+                            semanticLabel: context.t('browse.finished'),
+                          ),
+                        ),
+                      )
+                    else if (progress != null)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: LinearProgressIndicator(value: progress),
+                      ),
+                  ],
+                ),
                 Flexible(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -124,7 +167,11 @@ class CoverCard extends StatelessWidget {
             Positioned.fill(
               child: Material(
                 type: MaterialType.transparency,
-                child: InkWell(onTap: onTap),
+                child: InkWell(
+                  onTap: onTap,
+                  onLongPress: onLongPress,
+                  onSecondaryTap: onLongPress,
+                ),
               ),
             ),
           ],

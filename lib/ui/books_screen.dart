@@ -11,8 +11,9 @@ import 'package:bookserver/ui/readers/open_book.dart';
 import 'package:bookserver/ui/user_menu.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// A series' books, in reading order, with the [libraries] to switch to beside them.
-class BooksScreen extends StatelessWidget {
+/// A series' books, in reading order, with the [libraries] to switch to beside them. Each shows
+/// how far the user has read it; a long press marks it read or unread.
+class BooksScreen extends StatefulWidget {
   const BooksScreen({
     super.key,
     required this.session,
@@ -35,38 +36,126 @@ class BooksScreen extends StatelessWidget {
   final Series series;
 
   @override
+  State<BooksScreen> createState() => _BooksScreenState();
+}
+
+class _BooksScreenState extends State<BooksScreen> {
+  /// Loads the books again, keeping them on screen: a reader closed, or a book was marked.
+  final _reloads = ValueNotifier(0);
+
+  @override
+  void dispose() {
+    _reloads.dispose();
+    super.dispose();
+  }
+
+  Future<void> _read(Book book) async {
+    await openBook(context, widget.session, book);
+    if (mounted) {
+      _reloads.value++;
+    }
+  }
+
+  /// Offers to mark [book] read, or unread once it is, in a menu over its card.
+  Future<void> _offerMark(BuildContext cardContext, Book book) async {
+    final card = cardContext.findRenderObject()! as RenderBox;
+    final overlay =
+        Overlay.of(cardContext).context.findRenderObject()! as RenderBox;
+    final read = !book.progress.finished;
+    final chosen = await showMenu<bool>(
+      context: context,
+      position: RelativeRect.fromRect(
+        card.localToGlobal(Offset.zero, ancestor: overlay) & card.size,
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        PopupMenuItem(
+          value: read,
+          child: Text(
+            context.t(read ? 'browse.mark_read' : 'browse.mark_unread'),
+          ),
+        ),
+      ],
+    );
+    if (chosen != null && mounted) {
+      await _mark(book, chosen);
+    }
+  }
+
+  Future<void> _mark(Book book, bool finished) async {
+    // Taken before the wait: the screen may be gone by the time the save fails.
+    final messenger = ScaffoldMessenger.of(context);
+    final notSaved = context.t('browse.mark_not_saved');
+    try {
+      await widget.session.authorized(
+        (api, sessionToken) =>
+            BrowseApi(api)
+                .saveProgress(book.id, sessionToken, finished: finished),
+      );
+      if (mounted) {
+        _reloads.value++;
+      }
+    } on Exception {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(notSaved)));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final session = widget.session;
     return ListScreen<Book>(
-      title: series.name,
+      title: widget.series.name,
       emptyKey: 'browse.books_empty',
       reloadKey: 'browse.reload',
+      reloadOn: _reloads,
       load: () => session.authorized(
-        (api, sessionToken) => BrowseApi(api).booksOf(series.id, sessionToken),
+        (api, sessionToken) =>
+            BrowseApi(api).booksOf(widget.series.id, sessionToken),
       ),
       actions: [
-        UserMenu(session: session, catalogs: catalogs, account: account),
+        UserMenu(
+          session: session,
+          catalogs: widget.catalogs,
+          account: widget.account,
+        ),
       ],
       sidebar: LibrarySidebar(
         session: session,
-        catalogs: catalogs,
-        account: account,
-        libraries: libraries,
-        current: library,
+        catalogs: widget.catalogs,
+        account: widget.account,
+        libraries: widget.libraries,
+        current: widget.library,
       ),
       builder: (context, books) => CoverGrid(
         itemCount: books.length,
         itemBuilder: (context, index) {
           final book = books[index];
-          return CoverCard(
-            cover: Cover(session: session, kind: CoverKind.book, id: book.id),
-            name: bookName(context, book),
-            onTap: () => openBook(context, session, book),
+          // The grid builds every card in its own context: the menu needs the card's.
+          return Builder(
+            builder: (cardContext) => CoverCard(
+              cover: Cover(session: session, kind: CoverKind.book, id: book.id),
+              name: bookName(context, book),
+              progress: readShare(book.progress),
+              finished: book.progress.finished,
+              onTap: () => _read(book),
+              onLongPress: () => _offerMark(cardContext, book),
+            ),
           );
         },
       ),
     );
   }
 }
+
+/// How far into a book its [progress] lies, from 0 to 1, counting the place on screen as read;
+/// null for a book finished or never opened.
+double? readShare(Progress progress) => switch (progress) {
+  Progress(finished: true) => null,
+  Progress(place: (:final position, :final total)) => (position + 1) / total,
+  _ => null,
+};
 
 /// A book's name within its series: its volume and chapter, or its title when it has neither.
 String bookName(BuildContext context, Book book) =>

@@ -1,6 +1,7 @@
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/cover_grid.dart';
 import 'package:bookserver/ui/theme.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -237,5 +238,102 @@ void main() {
       ),
     );
     semantics.dispose();
+  });
+
+  /// Shows one card in a grid 400 wide, read as far as [progress] or [finished], whose long press
+  /// calls [onLongPress].
+  Future<void> showCard(
+    WidgetTester tester, {
+    double? progress,
+    bool finished = false,
+    VoidCallback? onLongPress,
+  }) => pumpScreen(
+    tester,
+    catalog: english,
+    screen: Scaffold(
+      body: Align(
+        alignment: Alignment.topLeft,
+        child: SizedBox(
+          width: 400,
+          child: CoverGrid(
+            itemCount: 1,
+            itemBuilder: (context, index) => CoverCard(
+              cover: const AspectRatio(
+                aspectRatio: Covers.aspectRatio,
+                child: Placeholder(),
+              ),
+              name: 'card 0',
+              onTap: () {},
+              progress: progress,
+              finished: finished,
+              onLongPress: onLongPress,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  final bar = find.byType(LinearProgressIndicator);
+  final check = find.byIcon(Icons.check_circle);
+
+  testWidgets('how far a card was read is a bar along its cover\'s bottom', (
+    tester,
+  ) async {
+    await showCard(tester);
+    final plainHeight = tester.getSize(cards).height;
+    expect(bar, findsNothing);
+    expect(check, findsNothing);
+
+    await showCard(tester, progress: 0.4);
+
+    expect(tester.widget<LinearProgressIndicator>(bar).value, 0.4);
+    final cover = find.byType(Placeholder);
+    expect(tester.getBottomLeft(bar), tester.getBottomLeft(cover));
+    expect(tester.getSize(bar).width, tester.getSize(cover).width);
+    expect(check, findsNothing);
+    expect(
+      tester.getSize(cards).height,
+      plainHeight,
+      reason: 'the card keeps its height',
+    );
+  });
+
+  testWidgets('a finished card shows a check in place of its bar', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+
+    await showCard(tester, progress: 0.4, finished: true);
+
+    expect(bar, findsNothing);
+    expect(check, findsOneWidget);
+    final cover = find.byType(Placeholder);
+    expect(
+      tester.getRect(cover).contains(tester.getCenter(check)),
+      isTrue,
+      reason: 'on the cover',
+    );
+    expect(
+      tester.getSemantics(cards),
+      isSemantics(
+        label: '${english.text('browse.finished')}\ncard 0',
+        isButton: true,
+        hasTapAction: true,
+      ),
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('a long press and a right click both do the card\'s long press', (
+    tester,
+  ) async {
+    var pressed = 0;
+    await showCard(tester, onLongPress: () => pressed++);
+
+    await tester.longPress(cards);
+    await tester.tap(cards, buttons: kSecondaryButton);
+
+    expect(pressed, 2);
   });
 }

@@ -18,6 +18,7 @@ class ListScreen<T> extends StatefulWidget {
     this.reloadInAppBar = true,
     this.actions = const [],
     this.sidebar,
+    this.reloadOn,
   });
 
   final String title;
@@ -44,6 +45,10 @@ class ListScreen<T> extends StatefulWidget {
   /// it; narrower, a drawer its button opens over the list.
   final Widget? sidebar;
 
+  /// Loads the list again whenever it notifies, as Reload does: the list on screen stays until
+  /// the new one is in.
+  final Listenable? reloadOn;
+
   @override
   State<ListScreen<T>> createState() => _ListScreenState<T>();
 }
@@ -54,10 +59,29 @@ class _ListScreenState<T> extends State<ListScreen<T>> {
   String? _errorKey;
   var _sidebarShown = true;
 
+  /// Counts the loads asked for: an answer to any but the last one is out of date.
+  var _loads = 0;
+
   @override
   void initState() {
     super.initState();
+    widget.reloadOn?.addListener(_reload);
     _load();
+  }
+
+  @override
+  void didUpdateWidget(ListScreen<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.reloadOn != widget.reloadOn) {
+      oldWidget.reloadOn?.removeListener(_reload);
+      widget.reloadOn?.addListener(_reload);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.reloadOn?.removeListener(_reload);
+    super.dispose();
   }
 
   void _reload() {
@@ -66,22 +90,23 @@ class _ListScreenState<T> extends State<ListScreen<T>> {
   }
 
   Future<void> _load() async {
+    final load = ++_loads;
     try {
       final items = await widget.load();
-      if (mounted) {
+      if (mounted && load == _loads) {
         setState(() {
           _items = items;
           _errorKey = null;
         });
       }
     } on Exception catch (error) {
-      if (mounted) {
+      if (mounted && load == _loads) {
         setState(
           () => _errorKey = errorTextKey(error, CatalogScope.of(context)),
         );
       }
     } finally {
-      if (mounted) {
+      if (mounted && load == _loads) {
         setState(() => _loading = false);
       }
     }
