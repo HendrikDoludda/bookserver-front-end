@@ -9,6 +9,7 @@ import 'package:bookserver/data/session_http_client.dart';
 import 'package:bookserver/i18n/catalog.dart';
 import 'package:bookserver/ui/notice.dart';
 import 'package:bookserver/ui/readers/contents_list.dart';
+import 'package:bookserver/ui/readers/progress_saver.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:bookserver/ui/readers/reading_mode_button.dart';
 import 'package:bookserver/ui/readers/tap_zones.dart';
@@ -43,6 +44,10 @@ class _PdfReaderState extends State<PdfReader> {
   String? _errorKey;
   int? _page;
 
+  /// The page the viewer opens at, counted from 1, as pdfrx counts: the saved one.
+  var _openAt = 1;
+  ProgressSaver? _saver;
+
   /// The PDF's own contents, once read; none while it hasn't any.
   List<PdfOutlineNode> _outline = const [];
 
@@ -63,6 +68,7 @@ class _PdfReaderState extends State<PdfReader> {
 
   @override
   void dispose() {
+    _saver?.close();
     unawaited(_close(_document?.document));
     super.dispose();
   }
@@ -107,12 +113,27 @@ class _PdfReaderState extends State<PdfReader> {
         await _close(document);
         return;
       }
+      final count = document.pages.length;
+      final startAt = details.progress.openAt(count);
       setState(() {
         _document = PdfDocumentRefDirect(document, autoDispose: false);
         _seriesId = details.seriesId;
         _mode = details.mode ?? ReadingMode.continuous;
         _zoom = _startZoom(_mode);
+        _openAt = startAt + 1;
       });
+      if (count > 0) {
+        final saver = _saver = ProgressSaver(
+          session: widget.session,
+          bookId: widget.book.id,
+          opening: (position: startAt, total: count),
+          restarting: details.progress.finished,
+        );
+        // A book whose last page shows as it opens is at its end already.
+        if (startAt == count - 1) {
+          saver.ended(startAt, count);
+        }
+      }
       unawaited(_loadOutline(document));
     } on Exception {
       // pdfrx wraps every cause, a lost connection as much as a damaged file.
@@ -147,6 +168,10 @@ class _PdfReaderState extends State<PdfReader> {
     setState(() => _page = page);
     if (turned) {
       _hideBar();
+    }
+    final count = _document?.document.pages.length ?? 0;
+    if (page != null && count > 0) {
+      _saver?.pageShown(page - 1, count);
     }
   }
 
@@ -252,7 +277,7 @@ class _PdfReaderState extends State<PdfReader> {
           ? null
           : Text(
               context.t('reader.page_of', {
-                'page': _page ?? 1,
+                'page': _page ?? _openAt,
                 'count': document.document.pages.length,
               }),
             ),
@@ -284,7 +309,7 @@ class _PdfReaderState extends State<PdfReader> {
       // whichever way the pages ran before.
       key: ValueKey(_mode),
       controller: _viewer,
-      initialPageNumber: _page ?? 1,
+      initialPageNumber: _page ?? _openAt,
       params: pdfViewerParams(
         mode: _mode,
         background: Theme.of(context).colorScheme.surfaceContainerHighest,

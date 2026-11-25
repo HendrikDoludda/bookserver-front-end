@@ -5,6 +5,7 @@ import 'package:bookserver/ui/error_text.dart';
 import 'package:bookserver/ui/notice.dart';
 import 'package:bookserver/ui/readers/page_column.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
+import 'package:bookserver/ui/readers/progress_saver.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:bookserver/ui/readers/reading_mode_button.dart';
 import 'package:bookserver/ui/readers/zoom.dart';
@@ -32,6 +33,7 @@ class _PageReaderState extends State<PageReader> {
   var _mode = ReadingMode.ltr;
   String? _errorKey;
   var _index = 0;
+  ProgressSaver? _saver;
 
   /// The zoom step the pages show at while the book is open, and whether a pinch has left it.
   var _zoom = ZoomStep.fitPage;
@@ -41,6 +43,12 @@ class _PageReaderState extends State<PageReader> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _saver?.close();
+    super.dispose();
   }
 
   void _retry() {
@@ -63,12 +71,26 @@ class _PageReaderState extends State<PageReader> {
         return (await pages, await details);
       });
       if (mounted) {
+        final opening = details.progress.openAt(pages.length);
         setState(() {
           _pages = pages;
           _shapes = pageShapes([for (final page in pages) page.size]);
           _seriesId = details.seriesId;
           _mode = details.mode ?? ReadingMode.ltr;
+          _index = opening;
         });
+        if (pages.isNotEmpty) {
+          final saver = _saver = ProgressSaver(
+            session: widget.session,
+            bookId: widget.book.id,
+            opening: (position: opening, total: pages.length),
+            restarting: details.progress.finished,
+          );
+          // A book whose last page shows as it opens is at its end already.
+          if (opening == pages.length - 1) {
+            saver.ended(opening, pages.length);
+          }
+        }
       }
     } on Exception catch (error) {
       if (mounted) {
@@ -144,10 +166,14 @@ class _PageReaderState extends State<PageReader> {
       ),
     );
     // A turn shows the next page at the zoom step again.
-    void pageChanged(int index) => setState(() {
-      _index = index;
-      _pinched = false;
-    });
+    void pageChanged(int index) {
+      setState(() {
+        _index = index;
+        _pinched = false;
+      });
+      _saver?.pageShown(index, pages.length);
+    }
+
     void toggleBar() => _frame.currentState?.toggleBar();
     // Either one takes over at the page the other was on.
     if (_mode == ReadingMode.continuous) {

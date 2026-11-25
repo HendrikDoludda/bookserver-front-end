@@ -15,6 +15,7 @@ import 'package:bookserver/ui/readers/anchored_list.dart';
 import 'package:bookserver/ui/readers/contents_list.dart';
 import 'package:bookserver/ui/readers/fixed_layout_page.dart';
 import 'package:bookserver/ui/readers/page_turner.dart';
+import 'package:bookserver/ui/readers/progress_saver.dart';
 import 'package:bookserver/ui/readers/reader_frame.dart';
 import 'package:bookserver/ui/readers/zoom.dart';
 import 'package:bookserver/ui/theme.dart';
@@ -53,6 +54,10 @@ class _EpubReaderState extends State<EpubReader> {
   /// The fixed-layout page on screen.
   var _page = 0;
 
+  /// The block a flowing book opens at.
+  var _openingBlock = 0;
+  ProgressSaver? _saver;
+
   /// The zoom step fixed-layout pages show at while the book is open, and whether a pinch has
   /// left it.
   var _zoom = ZoomStep.fitPage;
@@ -66,6 +71,7 @@ class _EpubReaderState extends State<EpubReader> {
 
   @override
   void dispose() {
+    _saver?.close();
     _epub?.close();
     if (_file case final file?) {
       unawaited(_delete(file));
@@ -82,6 +88,8 @@ class _EpubReaderState extends State<EpubReader> {
   }
 
   Future<void> _open() async {
+    // Asked while the file downloads.
+    final asking = _progress();
     try {
       final file = _file ??= await _freshFile(widget.book.id);
       await widget.session.authorized(
@@ -103,10 +111,13 @@ class _EpubReaderState extends State<EpubReader> {
         setState(() => _errorKey = 'reader.open_failed');
         return;
       }
+      final progress = await asking;
       if (epub.isFixedLayout) {
         final fixedLayout = FixedLayoutBook(epub, widget.book.id);
-        // The first page right away, while "Opening the book…" still shows.
-        await fixedLayout.prepare(0);
+        final count = epub.chapters.length;
+        final opening = progress.openAt(count);
+        // The opening page right away, while "Opening the book…" still shows.
+        await fixedLayout.prepare(opening);
         if (!mounted) {
           epub.close();
           return;
@@ -114,7 +125,12 @@ class _EpubReaderState extends State<EpubReader> {
         setState(() {
           _epub = epub;
           _fixedLayout = fixedLayout;
+          _page = opening;
         });
+        _startSaving(progress, opening, count);
+        if (count > 0 && opening == count - 1) {
+          _saver?.ended(opening, count);
+        }
         return;
       }
       final blocks = <_Block>[];
@@ -133,12 +149,15 @@ class _EpubReaderState extends State<EpubReader> {
           ));
         }
       }
+      final opening = progress.openAt(blocks.length);
       setState(() {
         _epub = epub;
         _blocks = blocks;
         _chapterStarts = chapterStarts;
         _anchors = anchors;
+        _openingBlock = opening;
       });
+      _startSaving(progress, opening, blocks.length);
     } on Exception catch (error) {
       if (mounted) {
         setState(
@@ -146,6 +165,57 @@ class _EpubReaderState extends State<EpubReader> {
         );
       }
     }
+  }
+
+  /// The signed-in user's progress in the book; none when it can't be had, which opens the book at
+  /// its start.
+  Future<Progress> _progress() async {
+    try {
+      final details = await widget.session.authorized(
+        (api, sessionToken) =>
+            BrowseApi(api).book(widget.book.id, sessionToken),
+      );
+      return details.progress;
+    } on Exception {
+      return Progress.none;
+    }
+  }
+
+  /// Saves the place from now on, the book having opened at [opening] of [count].
+  void _startSaving(Progress progress, int opening, int count) {
+    if (count < 1) {
+      return;
+    }
+    _saver?.close();
+    _saver = ProgressSaver(
+      session: widget.session,
+      bookId: widget.book.id,
+      opening: (position: opening, total: count),
+      restarting: progress.finished,
+    );
+  }
+
+  /// Saves where a flowing book rests: the block at the top, and its end once nothing is left
+  /// below.
+  void _scrolled(ScrollMetrics metrics) =>
+      _saveTop(atEnd: metrics.extentAfter < 1);
+
+  /// Saves the block at the top, [atEnd] as the book's end, once the coming frame is laid out: a
+  /// scroll ends, and a jump is asked for, before the blocks have moved.
+  void _saveTop({bool atEnd = false}) {
+    WidgetsBinding.instance
+      ..addPostFrameCallback((_) {
+        final top = mounted ? _list.currentState?.topItem : null;
+        if (top == null) {
+          return;
+        }
+        if (atEnd) {
+          _saver?.ended(top, _blocks.length);
+        } else {
+          _saver?.moved(top, _blocks.length);
+        }
+      })
+      ..scheduleFrame();
   }
 
   void _showProgress(int received, int? total) {
@@ -180,6 +250,7 @@ class _EpubReaderState extends State<EpubReader> {
     _list.currentState?.showItem(
       math.min(_chapterStarts[chapter] + (inChapter ?? 0), _blocks.length - 1),
     );
+    _saveTop();
   }
 
   /// Follows a link in a flowing book's text, written as [url]: to its place when that is in the
@@ -222,6 +293,7 @@ class _EpubReaderState extends State<EpubReader> {
     );
     if (top != null) {
       _list.currentState?.showItem(top);
+      _saveTop();
     }
   }
 
@@ -289,6 +361,7 @@ class _EpubReaderState extends State<EpubReader> {
       return PageTurner(
         key: _turner,
         count: epub.chapters.length,
+        initialIndex: _page,
         rightToLeft: epub.isRightToLeft,
         initialZoom: _zoom,
         // A page not parsed yet takes the first page's size, as nearly every book's pages share
@@ -297,10 +370,13 @@ class _EpubReaderState extends State<EpubReader> {
             (fixedLayout.prepared(index) ?? fixedLayout.prepared(0))
                 ?.size
                 .aspectRatio,
-        onPageChanged: (index) => setState(() {
-          _page = index;
-          _pinched = false;
-        }),
+        onPageChanged: (index) {
+          setState(() {
+            _page = index;
+            _pinched = false;
+          });
+          _saver?.pageShown(index, epub.chapters.length);
+        },
         onPinch: () => setState(() => _pinched = true),
         onTap: _toggleBar,
         pageBuilder: (context, index, decodeWidth) => FixedLayoutPage(
@@ -311,14 +387,24 @@ class _EpubReaderState extends State<EpubReader> {
         ),
       );
     }
-    return GestureDetector(
-      onTap: _toggleBar,
-      child: _Blocks(
-        listKey: _list,
-        book: epub,
-        blocks: _blocks,
-        fontPercent: PreferencesScope.of(context).preferences.fontPercent,
-        onLink: _follow,
+    return NotificationListener<ScrollEndNotification>(
+      onNotification: (notification) {
+        // Only the list's own scrolling: a wide table in a block scrolls on its own.
+        if (notification.depth == 0) {
+          _scrolled(notification.metrics);
+        }
+        return false;
+      },
+      child: GestureDetector(
+        onTap: _toggleBar,
+        child: _Blocks(
+          listKey: _list,
+          book: epub,
+          blocks: _blocks,
+          initialBlock: _openingBlock,
+          fontPercent: PreferencesScope.of(context).preferences.fontPercent,
+          onLink: _follow,
+        ),
       ),
     );
   }
@@ -368,12 +454,13 @@ typedef _Block = ({
 });
 
 /// A book's blocks, chapter after chapter, in a column that keeps lines easy to follow, their text
-/// at [fontPercent] of its normal size.
+/// at [fontPercent] of its normal size; [initialBlock] at the top when it opens.
 class _Blocks extends StatelessWidget {
   const _Blocks({
     required this.listKey,
     required this.book,
     required this.blocks,
+    required this.initialBlock,
     required this.fontPercent,
     required this.onLink,
   });
@@ -381,6 +468,7 @@ class _Blocks extends StatelessWidget {
   final GlobalKey<AnchoredListState> listKey;
   final EpubBook book;
   final List<_Block> blocks;
+  final int initialBlock;
   final int fontPercent;
 
   /// Called with a link's address, resolved against its chapter, when it's tapped.
@@ -399,6 +487,7 @@ class _Blocks extends StatelessWidget {
       builder: (context, constraints) => AnchoredList(
         key: listKey,
         count: blocks.length,
+        initialItem: initialBlock,
         guessedHeights: _guessedHeights(
           context,
           textStyle,

@@ -277,6 +277,106 @@ void main() {
     );
   });
 
+  test("series and books carry the signed-in user's progress", () async {
+    final server = FakeServer(
+      (request) async => request.url.path.endsWith('/series')
+          ? jsonAnswer([
+              {'id': 4, 'name': 'alpha', 'book_count': 7, 'finished_count': 3},
+              {'id': 5, 'name': 'beta', 'book_count': 2},
+            ])
+          : jsonAnswer([
+              {
+                ...bookJson(id: 7),
+                'progress': {'position': 4, 'total': 200, 'finished': false},
+              },
+              {
+                ...bookJson(id: 8),
+                'progress': {'position': null, 'total': null, 'finished': true},
+              },
+              bookJson(id: 9),
+            ]),
+    );
+    final api = apiFor(server);
+
+    final series = await api.seriesOf(3, 'session-1');
+    final books = await api.booksOf(2, 'session-1');
+
+    expect(
+      [for (final one in series) one.finishedCount],
+      [3, 0],
+      reason: 'a series without the count has none finished',
+    );
+    expect(
+      [for (final book in books) (book.progress.place, book.progress.finished)],
+      [((position: 4, total: 200), false), (null, true), (null, false)],
+    );
+  });
+
+  test("a book's details carry the signed-in user's progress", () async {
+    final server = FakeServer(
+      (_) async => jsonAnswer({
+        ...bookJson(),
+        'reading_mode': 'ltr',
+        'progress': {'position': 9, 'total': 10, 'finished': true},
+      }),
+    );
+
+    final details = await apiFor(server).book(7, 'session-1');
+
+    expect(details.progress.place, (position: 9, total: 10));
+    expect(details.progress.finished, isTrue);
+  });
+
+  test('saveProgress patches the place, the mark, or both', () async {
+    final server = FakeServer(
+      (_) async =>
+          jsonAnswer({'position': null, 'total': null, 'finished': false}),
+    );
+    final api = apiFor(server);
+
+    await api.saveProgress(7, 'session-1', place: (position: 4, total: 200));
+    await api.saveProgress(7, 'session-1', finished: true);
+    await api.saveProgress(
+      7,
+      'session-1',
+      place: (position: 0, total: 200),
+      finished: false,
+    );
+
+    expect([
+      for (final request in server.requests) (request.method, request.url.path),
+    ], everyElement(('PATCH', '/api/v1/books/7/progress')));
+    expect(
+      [for (final request in server.requests) jsonDecode(request.body)],
+      [
+        {'position': 4, 'total': 200},
+        {'finished': true},
+        {'position': 0, 'total': 200, 'finished': false},
+      ],
+    );
+    expect(
+      server.requests.map((request) => request.headers['authorization']),
+      everyElement('Bearer session-1'),
+    );
+  });
+
+  test('a book opens at its place, moved in proportion to another total', () {
+    expect(Progress.none.openAt(10), 0, reason: 'never opened');
+    expect(const Progress(place: (position: 4, total: 10)).openAt(10), 4);
+    expect(
+      const Progress(
+        place: (position: 4, total: 10),
+        finished: true,
+      ).openAt(10),
+      0,
+      reason: 'a finished book starts again',
+    );
+    expect(const Progress(place: (position: 100, total: 400)).openAt(500), 125);
+    expect(const Progress(place: (position: 399, total: 400)).openAt(100), 99);
+    expect(const Progress(place: (position: 9, total: 10)).openAt(5), 4);
+    expect(const Progress(place: (position: 3, total: 10)).openAt(0), 0);
+  });
+
   test('names the cover of a book, a series and a library', () {
     expect(coverPath(CoverKind.book, 1), '/api/v1/covers/book/1');
     expect(coverPath(CoverKind.series, 2), '/api/v1/covers/series/2');

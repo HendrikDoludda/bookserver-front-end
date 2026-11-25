@@ -891,4 +891,131 @@ void main() {
 
     expect(books(), isEmpty);
   });
+
+  /// A server whose book 7 is [bytes], with the user's [progress] in it, and that takes every
+  /// progress save.
+  FakeServer progressServer(
+    List<int> bytes, {
+    Map<String, Object?> progress = const {
+      'position': null,
+      'total': null,
+      'finished': false,
+    },
+  }) => bookServer(
+    (request) async => switch (request.url.path) {
+      '/api/v1/libraries' => jsonAnswer([]),
+      '/api/v1/books/7/file' => file(bytes),
+      '/api/v1/books/7' => jsonAnswer({
+        'id': 7,
+        'title': 'The Great Gatsby',
+        'format': 'epub',
+        'series': null,
+        'reading_mode': 'ltr',
+        'progress': progress,
+      }),
+      '/api/v1/books/7/progress' => jsonAnswer(jsonDecode(request.body)),
+      _ => notFound(),
+    },
+  );
+
+  /// The bodies of the progress saves [server] got, in order.
+  List<Object?> progressSaves(FakeServer server) => [
+    for (final request in server.requests)
+      if (request.url.path == '/api/v1/books/7/progress')
+        jsonDecode(request.body),
+  ];
+
+  // The long book's blocks: per chapter, its heading and 60 paragraphs.
+  const longBookBlocks = 183;
+
+  testWidgets('a flowing book opens at the block it was left at', (
+    tester,
+  ) async {
+    final server = progressServer(
+      longBook,
+      progress: {'position': 42, 'total': longBookBlocks, 'finished': false},
+    );
+
+    await openReader(
+      tester,
+      server,
+      find.textContaining('Chapter 1, paragraph', findRichText: true),
+    );
+
+    expect(
+      tester.widget<AnchoredList>(find.byType(AnchoredList)).count,
+      longBookBlocks,
+    );
+    expect(blockList(tester).topItem, 42);
+    await tester.pump(const Duration(seconds: 3));
+    expect(progressSaves(server), isEmpty, reason: 'opening is no move');
+  });
+
+  testWidgets(
+    'a flowing book saves the block at the top once it rests, and its end as finished',
+    (tester) async {
+      final server = progressServer(longBook);
+      await openReader(
+        tester,
+        server,
+        find.textContaining('Chapter 1, paragraph 1:', findRichText: true),
+      );
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).last)
+          .position;
+
+      position.jumpTo(3000);
+      await tester.pump();
+      final top = blockList(tester).topItem!;
+      await tester.pump(const Duration(seconds: 2));
+      expect(progressSaves(server), [
+        {'position': top, 'total': longBookBlocks},
+      ]);
+
+      // The guessed length firms up as the last blocks are built.
+      for (var step = 0; step < 50; step++) {
+        position.jumpTo(position.maxScrollExtent);
+        await tester.pump();
+        if (position.extentAfter < 1) {
+          break;
+        }
+      }
+      await tester.pump();
+
+      final saves = progressSaves(server);
+      expect(saves, hasLength(2), reason: 'the end drops the move waiting');
+      // The block at the top at the end, among the last chapter's last paragraphs.
+      expect(
+        saves.last,
+        allOf(
+          containsPair('total', longBookBlocks),
+          containsPair('finished', true),
+          containsPair('position', greaterThan(longBookBlocks - 10)),
+        ),
+      );
+    },
+  );
+
+  testWidgets('a fixed-layout book opens at the page it was left on', (
+    tester,
+  ) async {
+    final server = progressServer(
+      fixedBook,
+      progress: {'position': 1, 'total': 2, 'finished': false},
+    );
+
+    await openReader(
+      tester,
+      server,
+      find.text('The second page', findRichText: true),
+    );
+
+    expect(
+      find.text(english.text('reader.page_of', {'page': 2, 'count': 2})),
+      findsOneWidget,
+    );
+    expect(progressSaves(server), [
+      {'position': 1, 'total': 2, 'finished': true},
+    ], reason: 'its last page shows as it opens: the end');
+  });
 }

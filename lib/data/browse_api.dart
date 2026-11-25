@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show Size;
 
 import 'package:bookserver/data/api_client.dart';
@@ -17,13 +18,51 @@ class Library {
 }
 
 class Series {
-  const Series({required this.id, required this.name, required this.bookCount});
+  const Series({
+    required this.id,
+    required this.name,
+    required this.bookCount,
+    this.finishedCount = 0,
+  });
 
   final int id;
   final String name;
 
   /// How many books the series holds.
   final int bookCount;
+
+  /// How many of them the signed-in user finished.
+  final int finishedCount;
+}
+
+/// A place in a book: [position], from 0, of the [total] its reader counts — pages, or a flowing
+/// EPUB's blocks.
+typedef Place = ({int position, int total});
+
+/// The signed-in user's progress in a book: their place, and whether they finished it.
+class Progress {
+  const Progress({this.place, this.finished = false});
+
+  /// No place, unfinished: a book never opened.
+  static const none = Progress();
+
+  /// Null for a book never opened, or only marked by hand.
+  final Place? place;
+  final bool finished;
+
+  /// Where a reader that counts [total] places opens the book: at its place — moved in proportion
+  /// when it was counted out of another total — or at the start, for a book finished or never
+  /// opened.
+  int openAt(int total) {
+    final place = this.place;
+    if (finished || place == null || total < 1) {
+      return 0;
+    }
+    if (place.total == total) {
+      return math.min(place.position, total - 1);
+    }
+    return math.min(place.position * total ~/ place.total, total - 1);
+  }
 }
 
 /// What kind of file a book is, which decides the reader that opens it.
@@ -52,6 +91,7 @@ class Book {
     required this.format,
     this.volume,
     this.chapter,
+    this.progress = Progress.none,
   });
 
   final int id;
@@ -61,6 +101,9 @@ class Book {
 
   /// A chapter can be a decimal one: 1.5 lies between chapters 1 and 2.
   final num? chapter;
+
+  /// The signed-in user's progress in it.
+  final Progress progress;
 }
 
 /// How a book's pages run: right to left, left to right, or top to bottom in one scrolling
@@ -81,7 +124,11 @@ enum ReadingMode {
 
 /// What the server knows about one book beyond the series' list.
 class BookDetails {
-  const BookDetails({required this.seriesId, required this.mode});
+  const BookDetails({
+    required this.seriesId,
+    required this.mode,
+    this.progress = Progress.none,
+  });
 
   /// Null for a book outside any series.
   final int? seriesId;
@@ -89,6 +136,9 @@ class BookDetails {
   /// The mode the signed-in user reads the book in; null for one this version of the app doesn't
   /// know, which a reader reads as its own default.
   final ReadingMode? mode;
+
+  /// The signed-in user's progress in it.
+  final Progress progress;
 }
 
 /// One page of a CBZ or image-folder book.
@@ -146,6 +196,10 @@ class BrowseApi {
         id: id,
         name: name,
         bookCount: count,
+        finishedCount: switch (entry) {
+          {'finished_count': int finished} => finished,
+          _ => 0,
+        },
       ),
       _ => throw const FormatException('Not a series.'),
     },
@@ -168,12 +222,14 @@ class BrowseApi {
           format: BookFormat.fromServer(format),
           volume: volume,
           chapter: chapter,
+          progress: _progressIn(entry),
         ),
       _ => throw const FormatException('Not a book.'),
     },
   );
 
-  /// The series of the book [bookId] and the mode the signed-in user reads it in.
+  /// The series of the book [bookId], the mode the signed-in user reads it in, and their progress
+  /// in it.
   Future<BookDetails> book(int bookId, String sessionToken) async {
     final json = await _client.getJson(
       '/api/v1/books/$bookId',
@@ -183,9 +239,34 @@ class BrowseApi {
       'series': final int? series,
       'reading_mode': final String mode,
     }) {
-      return BookDetails(seriesId: series, mode: ReadingMode.fromServer(mode));
+      return BookDetails(
+        seriesId: series,
+        mode: ReadingMode.fromServer(mode),
+        progress: _progressIn(json),
+      );
     }
     throw const FormatException('Not a book.');
+  }
+
+  /// Changes the signed-in user's progress in the book [bookId]: their [place], and whether they
+  /// [finished] it; what is null stays as it is.
+  Future<void> saveProgress(
+    int bookId,
+    String sessionToken, {
+    Place? place,
+    bool? finished,
+  }) async {
+    await _client.patchJson(
+      '/api/v1/books/$bookId/progress',
+      body: {
+        if (place != null) ...{
+          'position': place.position,
+          'total': place.total,
+        },
+        'finished': ?finished,
+      },
+      bearer: sessionToken,
+    );
   }
 
   /// Makes [mode] the one the signed-in user reads every book of the series [seriesId] in.
@@ -216,6 +297,22 @@ class BrowseApi {
       _ => throw const FormatException('Not a page.'),
     },
   );
+
+  /// The progress a book's answer carries; none for an answer without it.
+  static Progress _progressIn(Object? json) => switch (json) {
+    {
+      'progress': {
+        'position': final int position,
+        'total': final int total,
+        'finished': final bool finished,
+      },
+    } =>
+      Progress(place: (position: position, total: total), finished: finished),
+    {'progress': {'finished': final bool finished}} => Progress(
+      finished: finished,
+    ),
+    _ => Progress.none,
+  };
 
   Future<List<T>> _list<T>(
     String path,

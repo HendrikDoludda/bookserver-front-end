@@ -40,14 +40,31 @@ void main() {
       {'number': number, 'width': 1200, 'height': 1800},
   ]);
 
-  /// Book 7 as `GET /api/v1/books/7` answers it: read in [mode], part of [series].
-  http.Response details({String mode = 'ltr', int? series = 3}) => jsonAnswer({
+  /// Book 7 as `GET /api/v1/books/7` answers it: read in [mode], part of [series], with the
+  /// user's [progress] in it.
+  http.Response details({
+    String mode = 'ltr',
+    int? series = 3,
+    Map<String, Object?> progress = const {
+      'position': null,
+      'total': null,
+      'finished': false,
+    },
+  }) => jsonAnswer({
     'id': 7,
     'title': 'Demo Comic',
     'format': 'cbz',
     'series': series,
     'reading_mode': mode,
+    'progress': progress,
   });
+
+  /// The bodies of the progress saves [server] got, in order.
+  List<Object?> progressSaves(FakeServer server) => [
+    for (final request in server.requests)
+      if (request.url.path == '/api/v1/books/7/progress')
+        jsonDecode(request.body),
+  ];
 
   /// A server without libraries, whose book 7 lists its pages with [pages], answers for itself
   /// with [book] and answers page n with [page]; without [page], no page exists. A mode saved for
@@ -71,6 +88,9 @@ void main() {
     }
     if (path == '/api/v1/books/7/pages') {
       return pages();
+    }
+    if (path == '/api/v1/books/7/progress') {
+      return Future.value(jsonAnswer(jsonDecode(request.body)));
     }
     final number = RegExp(r'^/api/v1/books/7/pages/(\d+)$').firstMatch(path);
     if (number != null && page != null) {
@@ -720,5 +740,93 @@ void main() {
 
     expect(find.byTooltip(english.text('reader.mode')), findsOneWidget);
     expect(find.byTooltip(english.text('reader.zoom')), findsNothing);
+  });
+
+  testWidgets('a book opens at the page it was left on', (tester) async {
+    final server = readerServer(
+      () async => pageList(3),
+      book: () async =>
+          details(progress: {'position': 1, 'total': 3, 'finished': false}),
+    );
+
+    await openReader(tester, server);
+
+    expect(find.text(pageOf(2, 3)), findsOneWidget);
+    expect(turner(tester).initialIndex, 1);
+    await tester.pump(const Duration(seconds: 3));
+    expect(progressSaves(server), isEmpty, reason: 'opening is no move');
+  });
+
+  testWidgets(
+    'a page is saved once it rests, and the last page at once as the end',
+    (tester) async {
+      final server = readerServer(() async => pageList(3));
+      await openReader(tester, server);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await finishTurn(tester);
+      expect(progressSaves(server), isEmpty, reason: 'not rested yet');
+      // The page counts as turned partway through the turn, so its rest ends after the key's 2 s.
+      await tester.pump(const Duration(seconds: 2));
+      expect(progressSaves(server), [
+        {'position': 1, 'total': 3},
+      ]);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await finishTurn(tester);
+
+      expect(progressSaves(server), [
+        {'position': 1, 'total': 3},
+        {'position': 2, 'total': 3, 'finished': true},
+      ], reason: 'within a second: the end waits for no rest');
+    },
+  );
+
+  testWidgets(
+    'a finished book opens at its first page, and a turn unmarks it',
+    (tester) async {
+      final server = readerServer(
+        () async => pageList(3),
+        book: () async =>
+            details(progress: {'position': 2, 'total': 3, 'finished': true}),
+      );
+      await openReader(tester, server);
+      expect(find.text(pageOf(1, 3)), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await finishTurn(tester);
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(progressSaves(server), [
+        {'position': 1, 'total': 3, 'finished': false},
+      ]);
+    },
+  );
+
+  testWidgets('closing the reader saves the page at once', (tester) async {
+    final server = readerServer(() async => pageList(3));
+    await openReader(tester, server);
+    final turned = tester.binding.clock.now();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text(pageOf(2, 3)), findsOneWidget);
+    await showBars(tester, find.byType(PageTurner));
+
+    await tester.pageBack();
+    // The reader closes once its route is gone; well within the 2 s a page rests.
+    while (find.byType(PageTurner).evaluate().isNotEmpty) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.pump();
+
+    expect(progressSaves(server), [
+      {'position': 1, 'total': 3},
+    ]);
+    expect(
+      tester.binding.clock.now().difference(turned),
+      lessThan(const Duration(seconds: 2)),
+      reason: 'saved by the close, not by the rest',
+    );
   });
 }
